@@ -94,7 +94,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      {/* Sidebar */}
+
+      {/* ── Desktop Sidebar (lg+) ───────────────────────────────────────── */}
       <aside className={`
         fixed inset-y-0 left-0 z-30 w-56 bg-card border-r border-border flex flex-col
         transition-transform duration-200 lg:relative lg:translate-x-0
@@ -102,7 +103,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       `}>
         {/* Logo */}
         <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
-          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-label="eGear Media" className="mr-2.5">
+          <svg viewBox="0 0 32 32" width="28" height="28" fill="none" aria-label="Numerology" className="mr-2.5">
             <rect width="32" height="32" rx="7" fill="hsl(210 100% 56% / 0.15)" />
             <path d="M8 16h16M16 8v16" stroke="hsl(210,100%,56%)" strokeWidth="2.5" strokeLinecap="round"/>
             <circle cx="16" cy="16" r="4" stroke="hsl(210,100%,56%)" strokeWidth="2"/>
@@ -121,10 +122,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link key={href} href={href}
                 onClick={() => setSidebarOpen(false)}
                 className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors
-                  ${active
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  }`}>
+                  ${active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}>
                 <Icon size={15} />
                 {label}
               </Link>
@@ -132,40 +130,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* Token status */}
+        {/* Bottom actions */}
         <div className="px-3 py-3 border-t border-border shrink-0">
-          <button
-            data-testid="button-token"
-            onClick={() => setTokenOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs hover:bg-secondary transition-colors"
-          >
-            <div className={`w-2 h-2 rounded-full shrink-0 ${hasToken ? "bg-green-500 status-active" : "bg-yellow-500"}`} />
-            <span className="text-muted-foreground truncate">
-              {hasToken ? "Token connected" : "Connect token"}
-            </span>
+          <button data-testid="button-token" onClick={() => setTokenOpen(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs hover:bg-secondary transition-colors">
+            <div className={`w-2 h-2 rounded-full shrink-0 ${hasToken ? "bg-green-500" : "bg-yellow-500"}`} />
+            <span className="text-muted-foreground truncate">{hasToken ? "Token connected" : "Connect token"}</span>
             <Key size={11} className="ml-auto text-muted-foreground" />
           </button>
-          <a
-            href="https://adsmanager.facebook.com"
-            target="_blank" rel="noreferrer"
-            className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
+          <a href="https://adsmanager.facebook.com" target="_blank" rel="noreferrer"
+            className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
             <ExternalLink size={11} />
             Open Ads Manager
           </a>
-          <button
-            onClick={async () => {
-              await apiRequest("POST", "/api/auth/logout");
-              qc.invalidateQueries({ queryKey: ["/api/auth/check"] });
-            }}
-            className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
-          >
+          <button onClick={async () => { await apiRequest("POST", "/api/auth/logout"); qc.invalidateQueries({ queryKey: ["/api/auth/check"] }); }}
+            className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors">
             <LogOut size={11} />
             Sign out
           </button>
-          <div className="mt-2">
-            <PerplexityAttribution />
-          </div>
+          <div className="mt-2"><PerplexityAttribution /></div>
         </div>
       </aside>
 
@@ -174,48 +157,65 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-20 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Main */}
+      {/* ── Main content ────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
         {/* Top bar */}
         <header className="h-14 border-b border-border flex items-center px-4 gap-3 shrink-0 bg-card/50 backdrop-blur">
-          <button
-            className="lg:hidden text-muted-foreground hover:text-foreground"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
+          {/* Hamburger — mobile only, shown alongside bottom nav for token/settings access */}
+          <button className="lg:hidden text-muted-foreground hover:text-foreground p-1"
+            onClick={() => setSidebarOpen(!sidebarOpen)}>
             {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
           <div className="flex-1 min-w-0">
-            <div className="text-xs text-muted-foreground font-mono truncate">
-              Campaign: Numerology Blueprint - Static Meta_3-11-26
-            </div>
+            <div className="text-xs text-muted-foreground font-mono truncate">Numerology Blueprint · Meta Ads</div>
           </div>
-          <div className="text-xs text-muted-foreground font-mono hidden sm:block">
-            Act: 670664411827203
-          </div>
+          <div className="text-xs text-muted-foreground font-mono hidden sm:block">Act: 670664411827203</div>
           {!hasToken && (
             <Button size="sm" variant="outline" onClick={() => setTokenOpen(true)}
               className="text-xs border-yellow-500/50 text-yellow-400 hover:bg-yellow-500/10">
-              <Key size={12} className="mr-1.5" />
-              Add Token
+              <Key size={12} className="mr-1.5" />Add Token
             </Button>
           )}
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto overscroll-contain">
+        {/* Page content — extra bottom padding on mobile for the bottom nav */}
+        <main className="flex-1 overflow-y-auto overscroll-contain pb-16 lg:pb-0">
           {!hasToken && (
             <div className="mx-4 mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-3 text-sm">
               <Key size={14} className="text-yellow-400 shrink-0" />
               <span className="text-yellow-200">Connect your Meta API token to load live performance data.</span>
               <Button size="sm" variant="ghost" onClick={() => setTokenOpen(true)}
-                className="ml-auto text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-xs">
-                Connect →
-              </Button>
+                className="ml-auto text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-xs">Connect →</Button>
             </div>
           )}
           {children}
         </main>
       </div>
+
+      {/* ── Mobile Bottom Nav (hidden on lg+) ───────────────────────────── */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border flex items-stretch">
+        {NAV.map(({ href, icon: Icon, label }) => {
+          const active = location === href;
+          return (
+            <Link key={href} href={href}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors
+                ${active ? "text-primary" : "text-muted-foreground"}`}>
+              <Icon size={18} strokeWidth={active ? 2.5 : 1.8} />
+              <span>{label}</span>
+              {active && <span className="absolute bottom-0 w-8 h-0.5 bg-primary rounded-t-full" />}
+            </Link>
+          );
+        })}
+        {/* Settings shortcut */}
+        <button
+          onClick={() => setTokenOpen(true)}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors
+            ${hasToken ? "text-muted-foreground" : "text-yellow-400"}`}>
+          <Key size={18} strokeWidth={1.8} />
+          <span>Token</span>
+        </button>
+      </nav>
 
       <TokenModal open={tokenOpen} onClose={() => setTokenOpen(false)} />
     </div>
