@@ -4,8 +4,10 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
-const ADMIN_USER = "admin";
-const ADMIN_PASS = "Letsgo123!";
+const USERS: Record<string, string> = {
+  "admin": "Letsgo123!",
+  "partner": "Letsgo123!",  // partner can change this
+};
 const SESSION_SECRET = "nd8f2jKs91xPqLmZ";
 
 const app = express();
@@ -38,8 +40,9 @@ app.use(session({
 // Auth routes
 app.post("/api/auth/login", (req: Request, res: Response) => {
   const { username, password } = req.body;
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
+  if (USERS[username] && USERS[username] === password) {
     (req.session as any).authenticated = true;
+    (req.session as any).username = username;
     return res.json({ ok: true });
   }
   return res.status(401).json({ error: "Invalid credentials" });
