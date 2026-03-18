@@ -3,7 +3,7 @@ import { useHashLocation } from "wouter/use-hash-location";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
-import { LayoutDashboard, Layers, BarChart2, Activity, Globe, Key, ExternalLink, Menu, X } from "lucide-react";
+import { LayoutDashboard, Layers, BarChart2, Activity, Globe, Key, ExternalLink, Menu, X, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -153,6 +153,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <ExternalLink size={11} />
             Open Ads Manager
           </a>
+          <button
+            onClick={async () => {
+              await apiRequest("POST", "/api/auth/logout");
+              qc.invalidateQueries({ queryKey: ["/api/auth/check"] });
+            }}
+            className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <LogOut size={11} />
+            Sign out
+          </button>
           <div className="mt-2">
             <PerplexityAttribution />
           </div>
