@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@layer base {
+  :root {
+    /* Dark-first palette: deep charcoal + electric blue accent */
+    --background: 222 18% 10%;
+    --foreground: 210 20% 92%;
+
+    --card: 222 18% 13%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 222 18% 13%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 210 100% 56%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 14% 18%;
+    --secondary-foreground: 210 20% 80%;
+
+    --muted: 222 14% 18%;
+    --muted-foreground: 215 16% 55%;
+
+    --accent: 210 100% 56%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 14% 20%;
+    --input: 222 14% 20%;
+    --ring: 210 100% 56%;
+
+    --radius: 0.5rem;
+
+    /* Semantic colors */
+    --color-success: #22c55e;
+    --color-warning: #f59e0b;
+    --color-danger: #ef4444;
+    --color-info: #3b82f6;
+
+    /* Chart colors */
+    --chart-1: 210 100% 56%;
+    --chart-2: 160 84% 39%;
+    --chart-3: 37 90% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: "cv01", "cv02", "cv03", "cv04";
+    overflow: hidden;
+    height: 100vh;
+  }
+}
+
+/* Tabular numbers for all data cells */
+.tabular { font-variant-numeric: tabular-nums lining-nums; font-family: 'JetBrains Mono', monospace; }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+/* KPI card shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, hsl(var(--card)) 25%, hsl(var(--secondary)) 50%, hsl(var(--card)) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+/* Number count-up animation */
+@keyframes countup { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.count-up { animation: countup 0.4s ease-out forwards; }
+
+/* Status dot pulse */
+@keyframes pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+.status-active { animation: pulse-green 2s infinite; }
