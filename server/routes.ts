@@ -44,12 +44,41 @@ const COUNTRY_NAMES: Record<string, string> = {
 const META_BASE = "https://graph.facebook.com/v19.0";
 const INSIGHTS_FIELDS = "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,unique_clicks,unique_ctr";
 
+// ── Server-side cache to avoid hammering Meta API ───────────────────────────
+const metaCache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL: Record<string, number> = {
+  insights: 5 * 60 * 1000,   // insights data: 5 minutes
+  adsets:   5 * 60 * 1000,   // ad sets list: 5 minutes
+  ads:      5 * 60 * 1000,   // ads list: 5 minutes
+  campaigns: 2 * 60 * 1000,  // campaign list: 2 minutes
+  default:  5 * 60 * 1000,
+};
+
+function getCacheTTL(path: string): number {
+  if (path.includes("insights")) return CACHE_TTL.insights;
+  if (path.includes("adsets"))   return CACHE_TTL.adsets;
+  if (path.includes("/ads"))     return CACHE_TTL.ads;
+  if (path.includes("campaigns")) return CACHE_TTL.campaigns;
+  return CACHE_TTL.default;
+}
+
 async function fetchMeta(path: string, token: string, params: Record<string, string> = {}) {
   const url = new URL(`${META_BASE}/${path}`);
   url.searchParams.set("access_token", token);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+
+  // Cache key excludes the token for security
+  const cacheKey = `${path}?${new URLSearchParams(Object.entries(params).filter(([k]) => k !== "access_token")).toString()}`;
+  const cached = metaCache.get(cacheKey);
+  const ttl = getCacheTTL(path);
+  if (cached && Date.now() - cached.ts < ttl) return cached.data;
+
   const res = await fetch(url.toString());
-  return res.json();
+  const data = await res.json();
+
+  // Only cache successful responses
+  if (!data.error) metaCache.set(cacheKey, { data, ts: Date.now() });
+  return data;
 }
 
 function parseInsights(raw: any) {
@@ -730,6 +759,17 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/token", async (req, res) => {
     const token = await storage.getToken();
     res.json({ hasToken: !!token });
+  });
+
+  // Cache management
+  app.post("/api/cache/clear", (_req, res) => {
+    const size = metaCache.size;
+    metaCache.clear();
+    res.json({ ok: true, cleared: size });
+  });
+
+  app.get("/api/cache/status", (_req, res) => {
+    res.json({ entries: metaCache.size });
   });
 
   app.post("/api/token", async (req, res) => {
