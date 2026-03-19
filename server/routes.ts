@@ -56,23 +56,105 @@ function addLog(level: LogLevel, msg: string, detail?: string) {
   if (logs.length > MAX_LOGS) logs.shift();
 }
 
-// ── Server-side cache to avoid hammering Meta API ───────────────────────────
+// ── Disk persistence layer ────────────────────────────────────────────────────
+import fs from "fs";
+import path from "path";
+
+const DATA_DIR = path.join(process.cwd(), "data");
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+/** Turn a cache key into a safe filename */
+function cacheKeyToFile(key: string): string {
+  // Replace chars that are illegal in filenames
+  return path.join(DATA_DIR, key.replace(/[\/\\:*?"<>|]/g, "_").replace(/\s+/g, "-").slice(0, 200) + ".json");
+}
+
+function diskRead(key: string): { data: any; ts: number } | null {
+  try {
+    const file = cacheKeyToFile(key);
+    if (!fs.existsSync(file)) return null;
+    const raw = fs.readFileSync(file, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function diskWrite(key: string, data: any): void {
+  try {
+    const file = cacheKeyToFile(key);
+    fs.writeFileSync(file, JSON.stringify({ data, ts: Date.now() }), { encoding: "utf-8" });
+  } catch (e: any) {
+    addLog("warn", `⚠️ Disk write failed: ${key}`, e?.message);
+  }
+}
+
+function diskClear(): number {
+  try {
+    const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith(".json"));
+    for (const f of files) fs.unlinkSync(path.join(DATA_DIR, f));
+    return files.length;
+  } catch {
+    return 0;
+  }
+}
+
+function diskStatus(): Array<{ key: string; ageMin: number; size: number }> {
+  try {
+    const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith(".json"));
+    return files.map(f => {
+      const fp = path.join(DATA_DIR, f);
+      const stat = fs.statSync(fp);
+      let ts = stat.mtimeMs;
+      try { const j = JSON.parse(fs.readFileSync(fp, "utf-8")); ts = j.ts || ts; } catch {}
+      return { key: f.replace(".json", ""), ageMin: Math.round((Date.now() - ts) / 60000), size: stat.size };
+    }).sort((a, b) => a.ageMin - b.ageMin);
+  } catch {
+    return [];
+  }
+}
+
+/** Pre-warm in-memory cache from disk on server start */
+function prewarmFromDisk(): void {
+  try {
+    const files = fs.readdirSync(DATA_DIR).filter(f => f.endsWith(".json"));
+    let loaded = 0;
+    for (const f of files) {
+      try {
+        const fp = path.join(DATA_DIR, f);
+        const entry = JSON.parse(fs.readFileSync(fp, "utf-8"));
+        if (entry?.data) {
+          // Reconstruct original key from filename (best-effort)
+          const key = f.replace(".json", "").replace(/_/g, "/");
+          metaCache.set(key, { data: entry.data, ts: entry.ts ?? Date.now() });
+          loaded++;
+        }
+      } catch {}
+    }
+    if (loaded > 0) addLog("info", `💾 Pre-warmed cache from disk: ${loaded} entries`);
+  } catch {}
+}
+
+// ── In-memory cache + disk fallback ──────────────────────────────────────────
 const metaCache = new Map<string, { data: any; ts: number }>();
 const CACHE_TTL: Record<string, number> = {
-  insights: 5 * 60 * 1000,   // insights data: 5 minutes
-  adsets:   5 * 60 * 1000,   // ad sets list: 5 minutes
-  ads:      5 * 60 * 1000,   // ads list: 5 minutes
-  campaigns: 2 * 60 * 1000,  // campaign list: 2 minutes
-  default:  5 * 60 * 1000,
+  insights:  5 * 60 * 1000,
+  adsets:    5 * 60 * 1000,
+  ads:       5 * 60 * 1000,
+  campaigns: 2 * 60 * 1000,
+  default:   5 * 60 * 1000,
 };
 
 function getCacheTTL(path: string): number {
-  if (path.includes("insights")) return CACHE_TTL.insights;
-  if (path.includes("adsets"))   return CACHE_TTL.adsets;
-  if (path.includes("/ads"))     return CACHE_TTL.ads;
+  if (path.includes("insights"))  return CACHE_TTL.insights;
+  if (path.includes("adsets"))    return CACHE_TTL.adsets;
+  if (path.includes("/ads"))      return CACHE_TTL.ads;
   if (path.includes("campaigns")) return CACHE_TTL.campaigns;
   return CACHE_TTL.default;
 }
+
+// Run prewarm after everything is defined
+setTimeout(prewarmFromDisk, 0);
 
 async function fetchMeta(path: string, token: string, params: Record<string, string> = {}) {
   const url = new URL(`${META_BASE}/${path}`);
@@ -80,13 +162,24 @@ async function fetchMeta(path: string, token: string, params: Record<string, str
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   const cacheKey = `${path}?${new URLSearchParams(Object.entries(params).filter(([k]) => k !== "access_token")).toString()}`;
-  const cached = metaCache.get(cacheKey);
   const ttl = getCacheTTL(path);
-  if (cached && Date.now() - cached.ts < ttl) {
-    addLog("info", `⚡ Cache hit: ${path}`, `preset: ${params.date_preset || "n/a"}`);
-    return cached.data;
+
+  // 1. In-memory cache (fastest)
+  const memCached = metaCache.get(cacheKey);
+  if (memCached && Date.now() - memCached.ts < ttl) {
+    addLog("info", `⚡ Mem cache hit: ${path}`, `preset: ${params.date_preset || "n/a"}`);
+    return memCached.data;
   }
 
+  // 2. Disk cache — use if within TTL, or as fallback if Meta API fails
+  const diskCached = diskRead(cacheKey);
+  if (diskCached?.data && Date.now() - diskCached.ts < ttl) {
+    addLog("info", `💾 Disk cache hit: ${path}`, `age: ${Math.round((Date.now() - diskCached.ts) / 1000)}s`);
+    metaCache.set(cacheKey, diskCached); // restore to memory
+    return diskCached.data;
+  }
+
+  // 3. Live fetch from Meta API
   const t0 = Date.now();
   addLog("info", `→ Meta API: ${path}`, `preset: ${params.date_preset || "n/a"}`);
   try {
@@ -95,13 +188,27 @@ async function fetchMeta(path: string, token: string, params: Record<string, str
     const ms = Date.now() - t0;
     if (data.error) {
       addLog("error", `✗ Meta API error: ${path}`, `${data.error.message} (code ${data.error.code})`);
+      // 4. On API error — fall back to stale disk data rather than returning nothing
+      if (diskCached?.data) {
+        addLog("warn", `🔄 Serving stale disk data for: ${path}`, `age: ${Math.round((Date.now() - diskCached.ts) / 60000)}min`);
+        metaCache.set(cacheKey, diskCached);
+        return diskCached.data;
+      }
     } else {
       addLog("success", `✓ Meta API OK: ${path} (${ms}ms)`, `records: ${data.data?.length ?? 1}`);
-      metaCache.set(cacheKey, { data, ts: Date.now() });
+      const entry = { data, ts: Date.now() };
+      metaCache.set(cacheKey, entry);
+      diskWrite(cacheKey, data); // ← persist to disk
     }
     return data;
   } catch (e: any) {
     addLog("error", `✗ Network error: ${path}`, e?.message || "Unknown error");
+    // Fall back to stale disk data on network failure
+    if (diskCached?.data) {
+      addLog("warn", `🔄 Serving stale disk data for: ${path} (network error)`);
+      metaCache.set(cacheKey, diskCached);
+      return diskCached.data;
+    }
     throw e;
   }
 }
@@ -818,14 +925,29 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Cache management
   app.post("/api/cache/clear", (_req, res) => {
+    // Only clear in-memory cache — disk data is preserved as fallback
+    // This forces a fresh live fetch from Meta on next request,
+    // but if Meta fails, disk data will still be served
     const size = metaCache.size;
     metaCache.clear();
-    addLog("warn", `🗑️ Cache cleared manually`, `${size} entries removed`);
+    addLog("warn", `🗑️ Mem cache cleared (disk preserved)`, `${size} mem entries removed; disk data still available as fallback`);
     res.json({ ok: true, cleared: size });
   });
 
+  app.post("/api/cache/clear-disk", (_req, res) => {
+    // Nuclear option: wipe both memory AND disk
+    const memSize = metaCache.size;
+    metaCache.clear();
+    const diskSize = diskClear();
+    addLog("warn", `💥 Full cache wipe (mem + disk)`, `${memSize} mem + ${diskSize} disk entries removed`);
+    res.json({ ok: true, memCleared: memSize, diskCleared: diskSize });
+  });
+
   app.get("/api/cache/status", (_req, res) => {
-    res.json({ entries: metaCache.size });
+    res.json({
+      memEntries: metaCache.size,
+      diskFiles: diskStatus(),
+    });
   });
 
   // Logs endpoint
