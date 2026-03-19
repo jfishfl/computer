@@ -9,6 +9,7 @@ import AdSetDetail from "@/pages/AdSetDetail";
 import Ads from "@/pages/Ads";
 import Insights from "@/pages/Insights";
 import Geography from "@/pages/Geography";
+import Logs from "@/pages/Logs";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/Layout";
@@ -49,6 +50,7 @@ function Router() {
             <Route path="/ads" component={Ads} />
             <Route path="/insights" component={Insights} />
             <Route path="/geography" component={Geography} />
+            <Route path="/logs" component={Logs} />
             <Route component={NotFound} />
           </Switch>
         </Layout>

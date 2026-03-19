@@ -44,6 +44,18 @@ const COUNTRY_NAMES: Record<string, string> = {
 const META_BASE = "https://graph.facebook.com/v19.0";
 const INSIGHTS_FIELDS = "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,unique_clicks,unique_ctr";
 
+// ── In-memory log ring buffer (last 200 entries) ───────────────────────────
+type LogLevel = "info" | "success" | "warn" | "error";
+interface LogEntry { id: number; ts: number; level: LogLevel; msg: string; detail?: string; }
+const logs: LogEntry[] = [];
+let logSeq = 0;
+const MAX_LOGS = 200;
+
+function addLog(level: LogLevel, msg: string, detail?: string) {
+  logs.push({ id: ++logSeq, ts: Date.now(), level, msg, detail });
+  if (logs.length > MAX_LOGS) logs.shift();
+}
+
 // ── Server-side cache to avoid hammering Meta API ───────────────────────────
 const metaCache = new Map<string, { data: any; ts: number }>();
 const CACHE_TTL: Record<string, number> = {
@@ -67,18 +79,31 @@ async function fetchMeta(path: string, token: string, params: Record<string, str
   url.searchParams.set("access_token", token);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
-  // Cache key excludes the token for security
   const cacheKey = `${path}?${new URLSearchParams(Object.entries(params).filter(([k]) => k !== "access_token")).toString()}`;
   const cached = metaCache.get(cacheKey);
   const ttl = getCacheTTL(path);
-  if (cached && Date.now() - cached.ts < ttl) return cached.data;
+  if (cached && Date.now() - cached.ts < ttl) {
+    addLog("info", `⚡ Cache hit: ${path}`, `preset: ${params.date_preset || "n/a"}`);
+    return cached.data;
+  }
 
-  const res = await fetch(url.toString());
-  const data = await res.json();
-
-  // Only cache successful responses
-  if (!data.error) metaCache.set(cacheKey, { data, ts: Date.now() });
-  return data;
+  const t0 = Date.now();
+  addLog("info", `→ Meta API: ${path}`, `preset: ${params.date_preset || "n/a"}`);
+  try {
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    const ms = Date.now() - t0;
+    if (data.error) {
+      addLog("error", `✗ Meta API error: ${path}`, `${data.error.message} (code ${data.error.code})`);
+    } else {
+      addLog("success", `✓ Meta API OK: ${path} (${ms}ms)`, `records: ${data.data?.length ?? 1}`);
+      metaCache.set(cacheKey, { data, ts: Date.now() });
+    }
+    return data;
+  } catch (e: any) {
+    addLog("error", `✗ Network error: ${path}`, e?.message || "Unknown error");
+    throw e;
+  }
 }
 
 function parseInsights(raw: any) {
@@ -765,11 +790,26 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/cache/clear", (_req, res) => {
     const size = metaCache.size;
     metaCache.clear();
+    addLog("warn", `🗑️ Cache cleared manually`, `${size} entries removed`);
     res.json({ ok: true, cleared: size });
   });
 
   app.get("/api/cache/status", (_req, res) => {
     res.json({ entries: metaCache.size });
+  });
+
+  // Logs endpoint
+  app.get("/api/logs", (_req, res) => {
+    res.json({
+      logs: [...logs].reverse(), // newest first
+      cache: { entries: metaCache.size },
+      uptime: Math.round(process.uptime()),
+    });
+  });
+
+  app.post("/api/logs/clear", (_req, res) => {
+    logs.length = 0;
+    res.json({ ok: true });
   });
 
   app.post("/api/token", async (req, res) => {

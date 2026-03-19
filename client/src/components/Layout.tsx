@@ -3,7 +3,7 @@ import { useHashLocation } from "wouter/use-hash-location";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
-import { LayoutDashboard, Layers, BarChart2, Activity, Globe, Key, ExternalLink, Menu, X, LogOut } from "lucide-react";
+import { LayoutDashboard, Layers, BarChart2, Activity, Globe, Key, ExternalLink, Menu, X, LogOut, RefreshCw, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,15 @@ const NAV = [
   { href: "/ads", icon: BarChart2, label: "All Ads" },
   { href: "/insights", icon: Activity, label: "Insights" },
   { href: "/geography", icon: Globe, label: "Geography" },
+];
+
+const NAV_BOTTOM = [
+  ...NAV,
+]; // mobile bottom nav (no Logs — it's a utility page)
+
+const NAV_SIDEBAR = [
+  ...NAV,
+  { href: "/logs", icon: Terminal, label: "Logs" },
 ];
 
 function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -83,6 +92,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [tokenOpen, setTokenOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const qc = useQueryClient();
+  const { toast } = useToast();
 
   const { data: tokenData } = useQuery({
     queryKey: ["/api/token"],
@@ -116,7 +127,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
-          {NAV.map(({ href, icon: Icon, label }) => {
+          {NAV_SIDEBAR.map(({ href, icon: Icon, label }) => {
             const active = location === href;
             return (
               <Link key={href} href={href}
@@ -137,6 +148,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <div className={`w-2 h-2 rounded-full shrink-0 ${hasToken ? "bg-green-500" : "bg-yellow-500"}`} />
             <span className="text-muted-foreground truncate">{hasToken ? "Token connected" : "Connect token"}</span>
             <Key size={11} className="ml-auto text-muted-foreground" />
+          </button>
+          <button
+            onClick={async () => {
+              await apiRequest("POST", "/api/cache/clear");
+              qc.invalidateQueries();
+              toast({ title: "Cache cleared", description: "Fetching fresh data from Meta..." });
+            }}
+            className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <RefreshCw size={11} />
+            Refresh data
           </button>
           <a href="https://adsmanager.facebook.com" target="_blank" rel="noreferrer"
             className="mt-1 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
@@ -195,7 +217,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* ── Mobile Bottom Nav (hidden on lg+) ───────────────────────────── */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border flex items-stretch">
-        {NAV.map(({ href, icon: Icon, label }) => {
+        {NAV_BOTTOM.map(({ href, icon: Icon, label }) => {
           const active = location === href;
           return (
             <Link key={href} href={href}
