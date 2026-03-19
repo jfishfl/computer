@@ -1,14 +1,16 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense, lazy } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useCampaigns } from "@/hooks/useCampaigns";
-import { Globe, TrendingUp, DollarSign, MousePointer, ShoppingCart, Clock, RefreshCw, AlertCircle } from "lucide-react";
+import { Globe, TrendingUp, DollarSign, MousePointer, ShoppingCart, Clock, RefreshCw, AlertCircle, Map } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const WorldMap = lazy(() => import("@/components/WorldMap"));
 
 const LANG_COLORS: Record<string, string> = {
   Spanish:    "hsl(16,  90%, 58%)",
@@ -206,6 +208,28 @@ export default function Geography() {
           <StatCard icon={ShoppingCart} label="Purchases" value={totals.purchases.toString()} sub="tracked conversions" />
         </div>
       )}
+
+      {/* Interactive World Map */}
+      <Card className="bg-card border-border">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Map size={14} className="text-primary" />
+            World Performance Map
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Green = profitable countries · Red = spend with no conversions · Gray = not targeted
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          {isLoading ? (
+            <Skeleton className="w-full rounded-lg" style={{ aspectRatio: "16/7" }} />
+          ) : (
+            <Suspense fallback={<Skeleton className="w-full rounded-lg" style={{ aspectRatio: "16/7" }} />}>
+              <WorldMap countries={sortedCountries} />
+            </Suspense>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Language summary bar */}
       {!isLoading && langTotals.length > 0 && (

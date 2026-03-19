@@ -623,6 +623,36 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // ── Ad creative / thumbnail ────────────────────────────────────────────────
+  app.get("/api/campaigns/:campaignId/adsets/:adsetId/ads/:adId/creative", async (req, res) => {
+    const token = await storage.getToken();
+    if (!token) return res.status(401).json({ error: "No token" });
+    const { adId } = req.params;
+    try {
+      // First get the creative ID from the ad
+      const adData = await fetchMeta(adId, token, { fields: "creative{id,thumbnail_url,image_url,object_story_spec}" });
+      if (adData.error) return res.status(400).json({ error: adData.error.message });
+      const creative = adData.creative || {};
+      // Prefer thumbnail_url, fall back to image_url
+      const thumbnailUrl = creative.thumbnail_url || creative.image_url || null;
+      // If we have a creative id, also fetch its thumbnail directly
+      let directThumb = thumbnailUrl;
+      if (!directThumb && creative.id) {
+        const creativeData = await fetchMeta(creative.id, token, {
+          fields: "thumbnail_url,image_url,object_story_spec",
+        });
+        directThumb = creativeData.thumbnail_url || creativeData.image_url || null;
+      }
+      res.json({
+        adId,
+        thumbnailUrl: directThumb,
+        creative,
+      });
+    } catch (e) {
+      res.status(500).json({ error: "Meta API error" });
+    }
+  });
+
   // ── Insights analysis for any campaign ──────────────────────────────────────
   app.get("/api/campaigns/:campaignId/insights-analysis", async (req, res) => {
     const token = await storage.getToken();
