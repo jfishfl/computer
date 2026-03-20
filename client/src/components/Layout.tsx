@@ -3,7 +3,7 @@ import { useHashLocation } from "wouter/use-hash-location";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
-import { LayoutDashboard, Layers, BarChart2, Activity, Globe, Key, ExternalLink, Menu, X, LogOut, RefreshCw, Terminal } from "lucide-react";
+import { LayoutDashboard, Layers, BarChart2, Activity, Globe, Key, ExternalLink, Menu, X, LogOut, RefreshCw, Terminal, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/", icon: LayoutDashboard, label: "Overview" },
   { href: "/adsets", icon: Layers, label: "Ad Sets" },
   { href: "/ads", icon: BarChart2, label: "All Ads" },
+  { href: "/pnl", icon: DollarSign, label: "P&L" },
   { href: "/insights", icon: Activity, label: "Insights" },
   { href: "/geography", icon: Globe, label: "Geography" },
 ];

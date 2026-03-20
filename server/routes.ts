@@ -43,6 +43,9 @@ const COUNTRY_NAMES: Record<string, string> = {
 
 const META_BASE = "https://graph.facebook.com/v19.0";
 const INSIGHTS_FIELDS = "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type,unique_clicks,unique_ctr";
+const REDTRACK_BASE = "https://api.redtrack.io";
+const REDTRACK_API_KEY = process.env.REDTRACK_API_KEY || "O9jnONlm9lhcWNNQh1X5";
+const RAILWAY_DB_URL = process.env.RAILWAY_DATABASE_URL || "postgresql://postgres:AVtIDzzHZKOzzaVsjyZZbFyvLsAqpAVY@yamabiko.proxy.rlwy.net:33033/railway";
 
 // ── In-memory log ring buffer (last 200 entries) ───────────────────────────
 type LogLevel = "info" | "success" | "warn" | "error";
@@ -222,7 +225,11 @@ function parseInsights(raw: any) {
   const purchases = actions.find((a: any) => a.action_type === "offsite_conversion.fb_pixel_purchase")?.value || 0;
   const leads = actions.find((a: any) => a.action_type === "lead")?.value || 0;
   const landingViews = actions.find((a: any) => a.action_type === "landing_page_view")?.value || 0;
+  const addToCart = actions.find((a: any) => a.action_type === "offsite_conversion.fb_pixel_add_to_cart")?.value || 0;
+  const initiateCheckout = actions.find((a: any) => a.action_type === "offsite_conversion.fb_pixel_initiate_checkout")?.value || 0;
+  const viewContent = actions.find((a: any) => a.action_type === "offsite_conversion.fb_pixel_view_content")?.value || 0;
   const costPerPurchase = cpa.find((a: any) => a.action_type === "offsite_conversion.fb_pixel_purchase")?.value || null;
+  const costPerATC = cpa.find((a: any) => a.action_type === "offsite_conversion.fb_pixel_add_to_cart")?.value || null;
 
   return {
     impressions: parseInt(d.impressions || "0"),
@@ -236,7 +243,11 @@ function parseInsights(raw: any) {
     purchases: parseInt(purchases),
     leads: parseInt(leads),
     landingViews: parseInt(landingViews),
+    addToCart: parseInt(addToCart),
+    initiateCheckout: parseInt(initiateCheckout),
+    viewContent: parseInt(viewContent),
     costPerPurchase: costPerPurchase ? parseFloat(costPerPurchase) : null,
+    costPerATC: costPerATC ? parseFloat(costPerATC) : null,
     roas: purchases > 0 && d.spend ? (parseInt(purchases) * 37) / parseFloat(d.spend) : null,
   };
 }
@@ -1245,6 +1256,277 @@ export function registerRoutes(httpServer: Server, app: Express) {
       console.error("Geography error:", e);
       res.status(500).json({ error: "Meta API error" });
     }
+  });
+
+  // ── RedTrack API helper ──────────────────────────────────────────────────────
+  async function fetchRedTrack(endpoint: string, params: Record<string, string> = {}): Promise<any> {
+    const url = new URL(`${REDTRACK_BASE}${endpoint}`);
+    url.searchParams.set("api_key", REDTRACK_API_KEY);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const cacheKey = `rt:${url.pathname}:${url.search}`;
+    const cached = metaCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 5 * 60 * 1000) return cached.data;
+    addLog("info", `🔴 RedTrack: ${endpoint}`);
+    const resp = await fetch(url.toString());
+    if (!resp.ok) {
+      addLog("warn", `⚠️ RedTrack ${resp.status}: ${endpoint}`);
+      return null;
+    }
+    const data = await resp.json();
+    metaCache.set(cacheKey, { data, ts: Date.now() });
+    diskWrite(cacheKey, data);
+    addLog("success", `✅ RedTrack: ${endpoint}`);
+    return data;
+  }
+
+  // ── Railway PostgreSQL helper ────────────────────────────────────────────────
+  let pgPool: any = null;
+  async function queryRailway(sql: string, params: any[] = []): Promise<any[]> {
+    try {
+      if (!pgPool) {
+        const { default: pg } = await import("pg") as any;
+        pgPool = new pg.Pool({ connectionString: RAILWAY_DB_URL, ssl: { rejectUnauthorized: false }, max: 3, idleTimeoutMillis: 10000 });
+        addLog("info", "🗄️ Railway DB pool created");
+      }
+      const result = await pgPool.query(sql, params);
+      return result.rows;
+    } catch (e: any) {
+      addLog("error", `❌ Railway DB error: ${e?.message}`);
+      return [];
+    }
+  }
+
+  // ── P&L Dashboard — combines Meta + RedTrack + Railway DB ────────────────────
+  app.get("/api/pnl", async (req, res) => {
+    const token = await storage.getToken();
+    if (!token) return res.status(401).json({ error: "No token" });
+    const datePreset = (req.query.date_preset as string) || "last_7d";
+
+    // Date range for RedTrack + DB queries
+    const presetDays: Record<string, number> = {
+      today: 0, yesterday: 1, last_3d: 3, last_7d: 7, last_14d: 14, last_30d: 30, this_month: 30, last_month: 30,
+    };
+    const days = presetDays[datePreset] ?? 7;
+    const dateFrom = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    const dateTo = new Date().toISOString().slice(0, 10);
+
+    try {
+      // 1. Meta — all campaigns aggregate spend + FB-reported conversions
+      const [allCampaignsData, rtReport, rtConversions, dbPurchases, dbFunnel, dbProducts] = await Promise.all([
+        // Meta campaigns
+        fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" }),
+        // RedTrack daily report grouped by date
+        fetchRedTrack("/report", { date_from: dateFrom, date_to: dateTo, "group[]": "date" }),
+        // RedTrack conversions list
+        fetchRedTrack("/conversions", { date_from: dateFrom, date_to: dateTo, limit: "500" }),
+        // Railway actual purchases
+        queryRailway(`SELECT
+          date_trunc('day', created_at) AS day,
+          COUNT(*) AS count,
+          SUM(amount_cents) / 100.0 AS revenue,
+          product_type
+        FROM purchases
+        WHERE created_at >= $1 AND status IN ('completed', 'succeeded', 'paid')
+        GROUP BY day, product_type
+        ORDER BY day`, [dateFrom + 'T00:00:00Z']),
+        // Railway funnel events
+        queryRailway(`SELECT
+          event_type,
+          COUNT(*) AS count,
+          COUNT(DISTINCT session_id) AS sessions
+        FROM funnel_events
+        WHERE created_at >= $1
+        GROUP BY event_type
+        ORDER BY count DESC`, [dateFrom + 'T00:00:00Z']),
+        // Railway revenue by product
+        queryRailway(`SELECT
+          product_type,
+          COUNT(*) AS count,
+          SUM(amount_cents) / 100.0 AS revenue,
+          MIN(amount_cents) / 100.0 AS min_price,
+          MAX(amount_cents) / 100.0 AS max_price,
+          AVG(amount_cents) / 100.0 AS avg_price
+        FROM purchases
+        WHERE status IN ('completed', 'succeeded', 'paid')
+        GROUP BY product_type
+        ORDER BY revenue DESC`, []),
+      ]);
+
+      // 2. Get Meta spend + FB conversions
+      const metaCampaigns = allCampaignsData?.data || [];
+      const metaInsightResults = await Promise.all(
+        metaCampaigns.map((c: any) =>
+          fetchMeta(`${c.id}/insights`, token, { fields: INSIGHTS_FIELDS, date_preset: datePreset })
+        )
+      );
+      let metaTotalSpend = 0, metaFbPurchases = 0, metaFbATC = 0, metaFbCheckout = 0, metaFbLandingViews = 0, metaFbClicks = 0, metaFbImpressions = 0;
+      const metaDailyData: Record<string, { spend: number; purchases: number; atc: number }> = {};
+      for (const raw of metaInsightResults) {
+        const ins = parseInsights(raw);
+        if (!ins) continue;
+        metaTotalSpend += ins.spend;
+        metaFbPurchases += ins.purchases;
+        metaFbATC += ins.addToCart;
+        metaFbCheckout += ins.initiateCheckout;
+        metaFbLandingViews += ins.landingViews;
+        metaFbClicks += ins.clicks;
+        metaFbImpressions += ins.impressions;
+      }
+
+      // 3. RedTrack totals
+      let rtClicks = 0, rtConvCount = 0, rtRevenue = 0;
+      const rtDailyMap: Record<string, { clicks: number; conversions: number; revenue: number }> = {};
+      const rtRows = Array.isArray(rtReport) ? rtReport : (rtReport?.rows || []);
+      for (const row of rtRows) {
+        const clicks = parseInt(row.clicks || row.total_clicks || "0");
+        const convs = parseInt(row.conversions || row.total_conversions || row.conv || "0");
+        const rev = parseFloat(row.revenue || row.total_revenue || "0");
+        rtClicks += clicks;
+        rtConvCount += convs;
+        rtRevenue += rev;
+        const day = row.date || row.day || "";
+        if (day) rtDailyMap[day] = { clicks, conversions: convs, revenue: rev };
+      }
+
+      // 4. Attribution bug detection — count unsubstituted template strings in RT
+      const convList = Array.isArray(rtConversions) ? rtConversions : (rtConversions?.data || rtConversions?.conversions || []);
+      let attributionBugCount = 0;
+      let attributedRevenue = 0;
+      const convsByAdId: Record<string, number> = {};
+      for (const conv of convList) {
+        const sub1 = conv.sub1 || conv.click_id || "";
+        const revenue = parseFloat(conv.revenue || conv.payout || "0");
+        if (sub1.includes("{{") || (conv.sub1 || "").includes("{{")) {
+          attributionBugCount++;
+        } else {
+          attributedRevenue += revenue;
+          if (sub1) convsByAdId[sub1] = (convsByAdId[sub1] || 0) + 1;
+        }
+      }
+
+      // 5. Actual DB revenue totals
+      let dbTotalRevenue = 0;
+      let dbTotalPurchases = 0;
+      const dbDailyMap: Record<string, { count: number; revenue: number }> = {};
+      for (const row of dbPurchases) {
+        const day = (row.day instanceof Date ? row.day.toISOString() : String(row.day)).slice(0, 10);
+        const count = parseInt(row.count || "0");
+        const revenue = parseFloat(row.revenue || "0");
+        dbTotalRevenue += revenue;
+        dbTotalPurchases += count;
+        if (!dbDailyMap[day]) dbDailyMap[day] = { count: 0, revenue: 0 };
+        dbDailyMap[day].count += count;
+        dbDailyMap[day].revenue += revenue;
+      }
+
+      // 6. Build daily P&L chart data
+      const allDays = new Set([
+        ...Object.keys(dbDailyMap),
+        ...Object.keys(rtDailyMap),
+      ]);
+      const dailyPnl = Array.from(allDays).sort().map((day) => {
+        const db = dbDailyMap[day] || { count: 0, revenue: 0 };
+        const rt = rtDailyMap[day] || { clicks: 0, conversions: 0, revenue: 0 };
+        return {
+          day,
+          revenue: db.revenue,
+          rtRevenue: rt.revenue,
+          purchases: db.count,
+          rtConversions: rt.conversions,
+          profit: db.revenue - 0, // spend allocated per day TBD
+        };
+      });
+
+      // 7. Funnel conversion rates (DB)
+      const funnelMap: Record<string, { count: number; sessions: number }> = {};
+      for (const row of dbFunnel) {
+        funnelMap[row.event_type] = {
+          count: parseInt(row.count || "0"),
+          sessions: parseInt(row.sessions || "0"),
+        };
+      }
+
+      // 8. Attribution gap
+      const attributionGap = dbTotalRevenue - attributedRevenue;
+      const attributionGapPct = dbTotalRevenue > 0 ? (attributionGap / dbTotalRevenue) * 100 : 0;
+
+      // 9. True ROAS + P&L
+      const trueRoas = metaTotalSpend > 0 ? dbTotalRevenue / metaTotalSpend : null;
+      const trueCpa = dbTotalPurchases > 0 ? metaTotalSpend / dbTotalPurchases : null;
+      const profit = dbTotalRevenue - metaTotalSpend;
+      const profitMargin = dbTotalRevenue > 0 ? (profit / dbTotalRevenue) * 100 : null;
+
+      // 10. EPC from RT
+      const epc = rtClicks > 0 ? rtRevenue / rtClicks : null;
+
+      res.json({
+        // Meta side
+        metaSpend: metaTotalSpend,
+        metaFbPurchases,
+        metaFbATC,
+        metaFbCheckout,
+        metaFbLandingViews,
+        metaFbClicks,
+        metaFbImpressions,
+        metaFbCPA: metaFbPurchases > 0 ? metaTotalSpend / metaFbPurchases : null,
+        // RedTrack side
+        rtClicks,
+        rtConversions: rtConvCount,
+        rtRevenue,
+        epc,
+        // Railway DB (ground truth)
+        dbRevenue: dbTotalRevenue,
+        dbPurchases: dbTotalPurchases,
+        dbProducts: dbProducts.map((r: any) => ({
+          product: r.product_type,
+          count: parseInt(r.count),
+          revenue: parseFloat(r.revenue),
+          avgPrice: parseFloat(r.avg_price),
+        })),
+        // Attribution
+        attributionBugCount,
+        attributedRevenue,
+        attributionGap,
+        attributionGapPct,
+        // True performance
+        trueRoas,
+        trueCpa,
+        profit,
+        profitMargin,
+        // Funnel (DB)
+        dbFunnel: funnelMap,
+        // FB vs DB conversion comparison
+        conversionComparison: {
+          fbReported: metaFbPurchases,
+          actualDB: dbTotalPurchases,
+          rtCredited: rtConvCount,
+          gap: metaFbPurchases - dbTotalPurchases,
+          // discrepancy alert if off by >20%
+          alert: metaFbPurchases > 0 && dbTotalPurchases > 0 &&
+            Math.abs(metaFbPurchases - dbTotalPurchases) / Math.max(metaFbPurchases, dbTotalPurchases) > 0.2
+        },
+        // Daily chart
+        dailyPnl,
+        dateFrom,
+        dateTo,
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      addLog("error", `❌ P&L error: ${e?.message}`);
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
+  // ── RedTrack reports passthrough ────────────────────────────────────────────
+  app.get("/api/redtrack/report", async (req, res) => {
+    const datePreset = (req.query.date_preset as string) || "last_7d";
+    const presetDays: Record<string, number> = { today: 0, yesterday: 1, last_3d: 3, last_7d: 7, last_14d: 14, last_30d: 30 };
+    const days = presetDays[datePreset] ?? 7;
+    const dateFrom = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+    const dateTo = new Date().toISOString().slice(0, 10);
+    const groupBy = (req.query.group as string) || "date";
+    const data = await fetchRedTrack("/report", { date_from: dateFrom, date_to: dateTo, "group[]": groupBy });
+    res.json(data || {});
   });
 
   // ── Insights / Performance Analysis ───────────────────────────────────────
