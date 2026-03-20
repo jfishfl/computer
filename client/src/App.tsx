@@ -11,6 +11,7 @@ import Insights from "@/pages/Insights";
 import Geography from "@/pages/Geography";
 import Logs from "@/pages/Logs";
 import PnL from "@/pages/PnL";
+import Creatives from "@/pages/Creatives";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/Layout";
@@ -52,6 +53,7 @@ function Router() {
             <Route path="/insights" component={Insights} />
             <Route path="/geography" component={Geography} />
             <Route path="/pnl" component={PnL} />
+            <Route path="/creatives" component={Creatives} />
             <Route path="/logs" component={Logs} />
             <Route component={NotFound} />
           </Switch>

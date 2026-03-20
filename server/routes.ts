@@ -1258,6 +1258,195 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // ── Creative Analysis — all ads with creative text + performance ──────────────────
+  app.get("/api/creative-analysis", async (req, res) => {
+    const token = await storage.getToken();
+    if (!token) return res.status(401).json({ error: "No token" });
+    const datePreset = (req.query.date_preset as string) || "last_7d";
+    const cacheKey = `creative-analysis:${datePreset}`;
+    const cached = metaCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return res.json(cached.data);
+
+    try {
+      // 1. Get all campaigns
+      const allCampaignsData = await fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" });
+      const campaigns = allCampaignsData?.data || [];
+
+      // 2. Get all ad sets per campaign
+      const adsetsByCampaign = await Promise.all(
+        campaigns.map((c: any) => fetchMeta(`${c.id}/adsets`, token, { fields: "id,name,status", limit: "50" }))
+      );
+      const allAdsets: Array<{ id: string; name: string; campaignId: string; campaignName: string }> = [];
+      for (let i = 0; i < campaigns.length; i++) {
+        for (const a of adsetsByCampaign[i]?.data || []) {
+          allAdsets.push({ id: a.id, name: a.name, campaignId: campaigns[i].id, campaignName: campaigns[i].name });
+        }
+      }
+
+      // 3. Get all ads per ad set (with creative fields inline)
+      const adsByAdset = await Promise.all(
+        allAdsets.map((as: any) =>
+          fetchMeta(`${as.id}/ads`, token, {
+            fields: "id,name,status,creative{id,thumbnail_url,image_url,object_story_spec,body,title}",
+            limit: "50",
+          })
+        )
+      );
+
+      // 4. Flatten all ads
+      const allAds: Array<{
+        id: string; name: string; status: string; adsetId: string; adsetName: string;
+        campaignId: string; campaignName: string; creative: any;
+      }> = [];
+      for (let i = 0; i < allAdsets.length; i++) {
+        const as = allAdsets[i];
+        for (const ad of adsByAdset[i]?.data || []) {
+          allAds.push({
+            id: ad.id,
+            name: ad.name,
+            status: ad.status,
+            adsetId: as.id,
+            adsetName: as.name,
+            campaignId: as.campaignId,
+            campaignName: as.campaignName,
+            creative: ad.creative || null,
+          });
+        }
+      }
+
+      // 5. Fetch insights for all ads in parallel (batched)
+      const insightResults = await Promise.all(
+        allAds.map((ad) =>
+          fetchMeta(`${ad.id}/insights`, token, { fields: INSIGHTS_FIELDS, date_preset: datePreset })
+        )
+      );
+
+      // 6. Extract creative text from object_story_spec
+      function extractCreativeText(creative: any) {
+        if (!creative) return {};
+        const spec = creative.object_story_spec || {};
+        // Link ads
+        const link = spec.link_data || {};
+        // Video ads
+        const video = spec.video_data || {};
+        // Page post
+        const pagePost = spec.template_data || {};
+
+        const headline = link.name || video.title || pagePost.name || creative.title || "";
+        const body = link.message || video.message || pagePost.message || creative.body || "";
+        const description = link.description || video.link_description || "";
+        const cta = link.call_to_action?.type || video.call_to_action?.type || "";
+        const thumbnailUrl = creative.thumbnail_url || creative.image_url
+          || link.picture || video.thumbnail_url || null;
+        const isVideo = !!(spec.video_data || link.video_id);
+
+        // Parse angle from ad name pattern: e.g. "... | Same Type - Hook name"
+        return { headline, body, description, cta, thumbnailUrl, isVideo };
+      }
+
+      // 7. Parse angle/hook from ad name
+      function parseAngle(name: string): string {
+        const n = name.toLowerCase();
+        if (n.includes("same type") || n.includes("same_type")) return "same_type";
+        if (n.includes("therapist")) return "therapist";
+        if (n.includes("oracle") || n.includes("ai oracle")) return "ai_oracle";
+        if (n.includes("broad") || n.includes("dlo")) return "broad";
+        return "other";
+      }
+
+      // 8. Build final ad objects with creative + insights
+      const result = allAds.map((ad, i) => {
+        const ins = parseInsights(insightResults[i]);
+        const ct = extractCreativeText(ad.creative);
+        const nameParts = ad.name.split(" | ");
+        const shortLabel = nameParts.length > 1 ? nameParts[1] : ad.name;
+        return {
+          id: ad.id,
+          name: ad.name,
+          shortLabel,
+          status: ad.status,
+          adsetId: ad.adsetId,
+          adsetName: ad.adsetName,
+          campaignId: ad.campaignId,
+          campaignName: ad.campaignName,
+          angle: parseAngle(ad.name),
+          // Creative text
+          headline: ct.headline,
+          body: ct.body,
+          description: ct.description,
+          cta: ct.cta,
+          thumbnailUrl: ct.thumbnailUrl,
+          isVideo: ct.isVideo,
+          // Performance
+          insights: ins,
+          // Composite score for ranking
+          score: ins ? (
+            (ins.ctr >= 2 ? 40 : ins.ctr >= 1 ? 25 : ins.ctr >= 0.5 ? 10 : 0) +
+            (ins.spend > 0 && ins.purchases > 0 ? 30 : ins.spend > 0 ? 5 : 0) +
+            (ins.cpc > 0 && ins.cpc <= 1 ? 20 : ins.cpc <= 2 ? 10 : 0) +
+            (ins.spend > 50 ? 10 : ins.spend > 10 ? 5 : 0)
+          ) : 0,
+        };
+      });
+
+      // Sort by score descending
+      result.sort((a, b) => b.score - a.score);
+
+      // Analyze winning patterns
+      const withData = result.filter(a => a.insights && a.insights.spend > 0);
+      const winners = withData.filter(a => a.score >= 50);
+      const losers = withData.filter(a => a.score < 20 && a.insights!.spend > 5);
+
+      // Headline analysis — group by unique headlines
+      const headlineMap: Record<string, { headline: string; count: number; totalCtr: number; totalSpend: number; totalPurchases: number; ads: string[] }> = {};
+      for (const ad of withData) {
+        const hl = (ad.headline || "(no headline)").trim();
+        if (!headlineMap[hl]) headlineMap[hl] = { headline: hl, count: 0, totalCtr: 0, totalSpend: 0, totalPurchases: 0, ads: [] };
+        headlineMap[hl].count++;
+        headlineMap[hl].totalCtr += ad.insights?.ctr || 0;
+        headlineMap[hl].totalSpend += ad.insights?.spend || 0;
+        headlineMap[hl].totalPurchases += ad.insights?.purchases || 0;
+        headlineMap[hl].ads.push(ad.id);
+      }
+      const headlineStats = Object.values(headlineMap).map(h => ({
+        ...h, avgCtr: h.count > 0 ? h.totalCtr / h.count : 0,
+      })).sort((a, b) => b.avgCtr - a.avgCtr);
+
+      // Angle analysis
+      const angleMap: Record<string, { angle: string; count: number; totalCtr: number; totalSpend: number; totalPurchases: number }> = {};
+      for (const ad of withData) {
+        const ang = ad.angle;
+        if (!angleMap[ang]) angleMap[ang] = { angle: ang, count: 0, totalCtr: 0, totalSpend: 0, totalPurchases: 0 };
+        angleMap[ang].count++;
+        angleMap[ang].totalCtr += ad.insights?.ctr || 0;
+        angleMap[ang].totalSpend += ad.insights?.spend || 0;
+        angleMap[ang].totalPurchases += ad.insights?.purchases || 0;
+      }
+      const angleStats = Object.values(angleMap).map(a => ({
+        ...a, avgCtr: a.count > 0 ? a.totalCtr / a.count : 0,
+        avgCpa: a.totalPurchases > 0 ? a.totalSpend / a.totalPurchases : null,
+      })).sort((a, b) => b.avgCtr - a.avgCtr);
+
+      const payload = {
+        ads: result,
+        winners: winners.slice(0, 10),
+        losers: losers.slice(0, 5),
+        headlineStats: headlineStats.slice(0, 10),
+        angleStats,
+        totalAds: result.length,
+        adsWithData: withData.length,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      metaCache.set(cacheKey, { data: payload, ts: Date.now() });
+      diskWrite(cacheKey, payload);
+      res.json(payload);
+    } catch (e: any) {
+      addLog("error", `❌ Creative analysis error: ${e?.message}`);
+      res.status(500).json({ error: String(e?.message || e) });
+    }
+  });
+
   // ── RedTrack API helper ──────────────────────────────────────────────────────
   async function fetchRedTrack(endpoint: string, params: Record<string, string> = {}): Promise<any> {
     const url = new URL(`${REDTRACK_BASE}${endpoint}`);
