@@ -488,6 +488,6 @@ export default function Geography() {
 // Simple country flag emoji from ISO code
 function countryFlag(code: string): string {
   if (!code || code.length !== 2) return "🌍";
-  const codePoints = [...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65);
-  return String.fromCodePoint(...codePoints);
+  const upper = code.toUpperCase();
+  return String.fromCodePoint(0x1F1E6 + upper.charCodeAt(0) - 65, 0x1F1E6 + upper.charCodeAt(1) - 65);
 }

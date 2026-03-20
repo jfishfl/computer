@@ -1,19 +1,256 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import {
   Image as ImageIcon, Play, TrendingUp, TrendingDown, Star, Zap, Lightbulb,
   BarChart3, CheckCircle2, AlertTriangle, ArrowUpRight, ArrowDownRight,
   ChevronRight, Eye, MousePointer, DollarSign, Flame, Target, Sparkles,
-  Copy, Shuffle, Brain
+  Copy, Shuffle, Brain, Wand2, Download, X, Loader2, Globe, ChevronDown, RefreshCw
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell
 } from "recharts";
+
+// ── GenerateImagesPanel ──────────────────────────────────────────────────────
+const LANGUAGES = ["All", "English", "Spanish", "Portuguese", "French", "German", "Italian"];
+const COUNT_OPTIONS = [1, 2, 3, 4];
+
+interface GenImage {
+  url: string;
+  variation: string;
+  language: string;
+  timestamp: string;
+}
+
+function GenerateImagesPanel() {
+  const qc = useQueryClient();
+  const [language, setLanguage] = useState("All");
+  const [count, setCount] = useState(2);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  // Fetch existing generated images
+  const { data: galleryData, refetch: refetchGallery } = useQuery({
+    queryKey: ["/api/generated-images"],
+    queryFn: () => apiRequest("GET", "/api/generated-images").then(r => r.json()),
+    staleTime: 30 * 1000,
+  });
+
+  const existingImages: GenImage[] = galleryData?.images || [];
+
+  const generateMutation = useMutation({
+    mutationFn: (params: { language: string; count: number }) =>
+      apiRequest("POST", "/api/generate-ad-image", params).then(r => r.json()),
+    onSuccess: () => {
+      refetchGallery();
+      qc.invalidateQueries({ queryKey: ["/api/generated-images"] });
+    },
+  });
+
+  const isGenerating = generateMutation.isPending;
+  const genError = (generateMutation.data as any)?.error || generateMutation.error?.message;
+  const noApiKey = genError?.includes("OpenAI API key");
+
+  return (
+    <div className="space-y-5">
+      {/* Generator card */}
+      <div className="bg-card border border-border rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Wand2 size={15} className="text-primary" />
+          <span className="text-sm font-semibold">AI Ad Image Generator</span>
+          <Badge variant="outline" className="text-xs border-primary/30 text-primary ml-auto">Powered by GPT Image</Badge>
+        </div>
+        <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
+          Generate high-converting Facebook ad creatives for Numerology Blueprint. Images are tailored by language/market and saved to disk for reuse.
+        </p>
+
+        {noApiKey && (
+          <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-400 flex items-start gap-2">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <div>
+              <div className="font-semibold mb-0.5">OpenAI API Key Required</div>
+              <div className="text-yellow-400/70">Add <code className="bg-black/30 px-1 rounded">OPENAI_API_KEY=sk-...</code> to your <code className="bg-black/30 px-1 rounded">.env</code> file on the LXC server, then restart the service.</div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Language selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <Globe size={11} /> Target Language / Market
+            </label>
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger className="w-44 h-9 text-xs bg-secondary border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LANGUAGES.map(l => (
+                  <SelectItem key={l} value={l} className="text-xs">{l === "All" ? "🌍 All Markets" : l}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Count selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs text-muted-foreground font-medium">How Many</label>
+            <Select value={String(count)} onValueChange={v => setCount(Number(v))}>
+              <SelectTrigger className="w-28 h-9 text-xs bg-secondary border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COUNT_OPTIONS.map(n => (
+                  <SelectItem key={n} value={String(n)} className="text-xs">{n} image{n > 1 ? "s" : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Generate button */}
+          <button
+            onClick={() => generateMutation.mutate({ language, count })}
+            disabled={isGenerating}
+            className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold flex items-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isGenerating ? (
+              <><Loader2 size={13} className="animate-spin" /> Generating…</>
+            ) : (
+              <><Wand2 size={13} /> Generate Images</>
+            )}
+          </button>
+
+          {existingImages.length > 0 && (
+            <button
+              onClick={() => refetchGallery()}
+              className="h-9 px-3 rounded-lg bg-secondary text-xs text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors"
+            >
+              <RefreshCw size={12} /> Refresh Gallery
+            </button>
+          )}
+        </div>
+
+        {isGenerating && (
+          <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary/80 flex items-center gap-2">
+            <Loader2 size={12} className="animate-spin" />
+            Generating {count} ad creative{count > 1 ? "s" : ""} for <strong>{language}</strong> market… this takes 20-40 seconds per image.
+          </div>
+        )}
+
+        {generateMutation.isSuccess && !genError && (
+          <div className="mt-4 p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-xs text-green-400 flex items-center gap-2">
+            <CheckCircle2 size={12} />
+            {(generateMutation.data as any)?.images?.length || count} image(s) generated and saved to server. Scroll down to view.
+          </div>
+        )}
+      </div>
+
+      {/* Gallery */}
+      {existingImages.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <ImageIcon size={14} className="text-primary" />
+              <span className="text-sm font-semibold">Generated Ad Library</span>
+              <Badge variant="outline" className="text-xs">{existingImages.length} images</Badge>
+            </div>
+          </div>
+
+          {/* Language filter pills */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {(["All", ...Array.from(new Set(existingImages.map(i => i.language)))]).map(lang => (
+              <button
+                key={lang}
+                onClick={() => setLanguage(lang)}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  language === lang
+                    ? "bg-primary/20 border-primary/40 text-primary"
+                    : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {lang}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {existingImages
+              .filter(img => language === "All" || img.language.toLowerCase() === language.toLowerCase() || img.language.toLowerCase() === "all")
+              .map((img, i) => (
+                <div
+                  key={i}
+                  className="group relative bg-secondary rounded-xl overflow-hidden cursor-pointer border border-border hover:border-primary/40 transition-all hover:shadow-lg hover:shadow-black/20"
+                  onClick={() => setLightboxUrl(img.url)}
+                >
+                  <div className="aspect-square">
+                    <img
+                      src={img.url}
+                      alt={`Generated ad - ${img.language}`}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0.3"; }}
+                    />
+                  </div>
+                  {/* Overlay */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                    <div className="p-2 bg-white/20 backdrop-blur-sm rounded-full">
+                      <Eye size={14} className="text-white" />
+                    </div>
+                    <a
+                      href={img.url}
+                      download
+                      onClick={e => e.stopPropagation()}
+                      className="p-2 bg-white/20 backdrop-blur-sm rounded-full"
+                    >
+                      <Download size={14} className="text-white" />
+                    </a>
+                  </div>
+                  {/* Language badge */}
+                  <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/80 to-transparent">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-white/90">{img.language}</span>
+                      <span className="text-[9px] text-white/50">{img.timestamp}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      <Dialog open={!!lightboxUrl} onOpenChange={open => !open && setLightboxUrl(null)}>
+        <DialogContent className="max-w-2xl bg-black/95 border-border p-2">
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-3 right-3 z-10 p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+          >
+            <X size={14} className="text-white" />
+          </button>
+          {lightboxUrl && (
+            <div className="flex flex-col items-center gap-3">
+              <img src={lightboxUrl} alt="Generated ad" className="w-full max-h-[70vh] object-contain rounded-lg" />
+              <div className="flex items-center gap-3">
+                <a
+                  href={lightboxUrl}
+                  download
+                  className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors bg-primary/10 px-3 py-1.5 rounded-lg"
+                >
+                  <Download size={12} /> Download
+                </a>
+                <span className="text-xs text-muted-foreground">Right-click to save as…</span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined, prefix = "", suffix = "", d = 2) {
@@ -23,6 +260,12 @@ function fmt(n: number | null | undefined, prefix = "", suffix = "", d = 2) {
 function fmtInt(n: number | null | undefined) {
   if (n == null) return "—";
   return Number(n).toLocaleString();
+}
+
+
+function proxyImg(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return `/api/proxy-image?url=${encodeURIComponent(url)}`;
 }
 
 const ANGLE_LABELS: Record<string, string> = {
@@ -70,7 +313,7 @@ function AdCard({ ad, rank }: { ad: any; rank?: number }) {
       {/* Image */}
       <div className="relative bg-black/40 aspect-video flex items-center justify-center overflow-hidden">
         {ad.thumbnailUrl && !imgErr ? (
-          <img src={ad.thumbnailUrl} alt="" className="w-full h-full object-cover"
+          <img src={proxyImg(ad.thumbnailUrl) || ""} alt="" className="w-full h-full object-cover"
             onError={() => setImgErr(true)} />
         ) : (
           <div className="flex flex-col items-center gap-2 text-muted-foreground/40">
@@ -431,6 +674,9 @@ export default function Creatives() {
             </TabsTrigger>
             <TabsTrigger value="ideas" className="text-xs">
               <Brain size={12} className="mr-1.5" /> New Ad Ideas
+            </TabsTrigger>
+            <TabsTrigger value="images" className="text-xs">
+              <Wand2 size={12} className="mr-1.5" /> AI Images
             </TabsTrigger>
           </TabsList>
 
@@ -828,6 +1074,11 @@ export default function Creatives() {
                 ))}
               </div>
             </div>
+          </TabsContent>
+
+          {/* ── Tab 5: AI Generated Images ── */}
+          <TabsContent value="images" className="space-y-5 mt-4">
+            <GenerateImagesPanel />
           </TabsContent>
         </Tabs>
       )}

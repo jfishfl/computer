@@ -9,6 +9,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 
+function proxyImg(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+}
+
+
 function fmt(n: number | null | undefined, prefix = "", suffix = "", decimals = 2) {
   if (n === null || n === undefined) return "—";
   return `${prefix}${n.toLocaleString(undefined, { maximumFractionDigits: decimals })}${suffix}`;
@@ -41,7 +47,7 @@ function AdThumbnail({
     retry: false,
   });
 
-  const thumb = data?.thumbnailUrl;
+  const thumb = proxyImg(data?.thumbnailUrl);
 
   return (
     <button
@@ -98,7 +104,7 @@ function AdPreviewModal({
 
   if (!ad) return null;
   const ins = ad.insights;
-  const thumb = data?.thumbnailUrl;
+  const thumb = proxyImg(data?.thumbnailUrl);
   const isTopCtr = ins?.ctr && ins.ctr > 1.5;
   const isPoorCtr = ins?.ctr && ins.ctr < 0.3;
 

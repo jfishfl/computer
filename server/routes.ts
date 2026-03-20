@@ -1814,4 +1814,144 @@ export function registerRoutes(httpServer: Server, app: Express) {
       res.status(500).json({ error: "Meta API error" });
     }
   });
+
+  // ── Image proxy — fetches Meta thumbnails server-side (avoids CORS/expiry) ──
+  app.get("/api/proxy-image", async (req, res) => {
+    const url = req.query.url as string;
+    if (!url) return res.status(400).json({ error: "Missing url param" });
+    // Only allow proxying from Meta/Facebook CDN domains
+    const allowed = ["fbcdn.net", "facebook.com", "fbsbx.com", "cdninstagram.com", "scontent"];
+    const isAllowed = allowed.some(d => url.includes(d));
+    if (!isAllowed) return res.status(403).json({ error: "Domain not allowed" });
+    try {
+      const resp = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; MetaDashboard/1.0)" },
+      });
+      if (!resp.ok) return res.status(resp.status).send("Upstream error");
+      const contentType = resp.headers.get("content-type") || "image/jpeg";
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      const buf = await resp.arrayBuffer();
+      res.send(Buffer.from(buf));
+    } catch (e: any) {
+      addLog("warn", `⚠️ Image proxy error`, e?.message);
+      res.status(500).send("Proxy error");
+    }
+  });
+
+  // ── AI Ad Image Generation ────────────────────────────────────────────────────
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+  const GEN_IMAGES_DIR = path.join(DATA_DIR, "generated_images");
+  if (!fs.existsSync(GEN_IMAGES_DIR)) fs.mkdirSync(GEN_IMAGES_DIR, { recursive: true });
+
+  // Language-specific prompts for numerology blueprint ads
+  const LANG_PROMPTS: Record<string, string> = {
+    Spanish:    "mystical numerology reading advertisement, cosmic purple and gold colors, moon and stars, sacred numbers floating, Latin spiritual aesthetic, professional Facebook ad creative, 4:5 ratio",
+    Portuguese: "numerology spiritual reading ad, vibrant cosmic colors, sacred geometry, Brazilian spiritual aesthetic, mystical numbers, professional Facebook ad creative",
+    French:     "numerology life path reading, elegant French aesthetic, cosmic indigo and rose gold, mystical sacred numbers, professional Facebook ad creative",
+    German:     "numerology blueprint reading, precise geometric sacred numbers, deep cosmic blue, mystical stars, German minimalist spiritual aesthetic, Facebook ad creative",
+    Italian:    "numerology reading advertisement, warm golden cosmic aesthetic, sacred geometry, Italian romantic mystical style, floating numbers and stars, Facebook ad creative",
+    English:    "numerology blueprint reading, cosmic purple gradient background, glowing sacred numbers, mystical life path forecast, professional Facebook ad creative",
+    All:        "numerology blueprint spiritual reading advertisement, cosmic purple and gold gradient, sacred geometry, glowing numbers 1-9, mystical stars and moon, divine feminine energy, professional high-converting Facebook ad creative, vibrant colors",
+  };
+
+  app.post("/api/generate-ad-image", async (req, res) => {
+    if (!OPENAI_API_KEY) return res.status(503).json({ error: "OpenAI API key not configured. Add OPENAI_API_KEY to your environment." });
+    const { language = "All", count = 1 } = req.body as { language?: string; count?: number };
+    const numImages = Math.min(4, Math.max(1, count));
+    const basePrompt = LANG_PROMPTS[language] || LANG_PROMPTS.All;
+
+    addLog("info", `🎨 Generating ${numImages} ad image(s) for language: ${language}`);
+    try {
+      const { default: OpenAI } = await import("openai");
+      const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+      const variations = [
+        `${basePrompt}, hook: YOUR BIRTH DATE REVEALS EVERYTHING, dramatic reveal concept`,
+        `${basePrompt}, hook: FREE NUMEROLOGY READING, gift box with cosmic numbers spilling out`,
+        `${basePrompt}, hook: What your birth number means for 2026, calendar and stars`,
+        `${basePrompt}, hook: YOUR LIFE PATH NUMBER, person looking at cosmic chart in awe`,
+      ];
+
+      const results: Array<{ url?: string; b64?: string; variation: string; language: string; timestamp: string }> = [];
+
+      for (let i = 0; i < numImages; i++) {
+        const prompt = variations[i % variations.length];
+        const imgRes = await openai.images.generate({
+          model: "gpt-image-1",
+          prompt,
+          n: 1,
+          size: "1024x1024",
+        });
+
+        const imgData = imgRes.data?.[0];
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const filename = `ad_${language.toLowerCase()}_${i + 1}_${timestamp}.png`;
+        const filepath = path.join(GEN_IMAGES_DIR, filename);
+
+        if (imgData?.b64_json) {
+          const buf = Buffer.from(imgData.b64_json, "base64");
+          fs.writeFileSync(filepath, buf);
+          results.push({
+            url: `/api/generated-image/${filename}`,
+            variation: variations[i % variations.length].split(",")[0].replace(basePrompt.split(",")[0], "").trim(),
+            language,
+            timestamp: new Date().toISOString(),
+          });
+        } else if (imgData?.url) {
+          // Fetch and save
+          const imgFetch = await fetch(imgData.url);
+          const buf = await imgFetch.arrayBuffer();
+          fs.writeFileSync(filepath, Buffer.from(buf));
+          results.push({
+            url: `/api/generated-image/${filename}`,
+            variation: variations[i % variations.length].split(",")[0],
+            language,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
+      addLog("success", `✅ Generated ${results.length} ad image(s) for ${language}`);
+      res.json({ images: results, language });
+    } catch (e: any) {
+      addLog("error", `❌ Image generation failed: ${e?.message}`);
+      res.status(500).json({ error: e?.message || "Image generation failed" });
+    }
+  });
+
+  // Serve generated images
+  app.get("/api/generated-image/:filename", (req, res) => {
+    const { filename } = req.params;
+    if (filename.includes("..") || filename.includes("/")) return res.status(400).send("Invalid");
+    const filepath = path.join(GEN_IMAGES_DIR, filename);
+    if (!fs.existsSync(filepath)) return res.status(404).send("Not found");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.sendFile(filepath);
+  });
+
+  // List all generated images
+  app.get("/api/generated-images", (req, res) => {
+    try {
+      const files = fs.readdirSync(GEN_IMAGES_DIR)
+        .filter(f => f.endsWith(".png") || f.endsWith(".jpg"))
+        .sort()
+        .reverse()
+        .slice(0, 50); // last 50
+      const images = files.map(f => {
+        const parts = f.replace(/\.(png|jpg)$/, "").split("_");
+        const lang = parts[1] || "all";
+        return {
+          url: `/api/generated-image/${f}`,
+          language: lang.charAt(0).toUpperCase() + lang.slice(1),
+          filename: f,
+          timestamp: f.includes("T") ? f.split("T")[0].replace(/-/g, "/").slice(-10) : "Unknown",
+        };
+      });
+      res.json({ images });
+    } catch {
+      res.json({ images: [] });
+    }
+  });
+
 }
