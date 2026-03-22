@@ -11,7 +11,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Play, Pause, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const ADSET_COLORS = ["#3b82f6","#22c55e","#f59e0b","#a78bfa","#fb7185","#34d399","#60a5fa","#f97316","#06b6d4","#e879f9"];
+const ADSET_COLORS = ["#f59e0b","#22c55e","#60a5fa","#a78bfa","#fb7185","#34d399","#f97316","#06b6d4","#e879f9","#fbbf24"];
 
 function shortName(name: string) {
   return name

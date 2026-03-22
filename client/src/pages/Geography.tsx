@@ -242,11 +242,11 @@ export default function Geography() {
             <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={langTotals} margin={{ top: 4, right: 8, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 20% 20%)" />
-                  <XAxis dataKey="language" tick={{ fontSize: 11, fill: "hsl(220 20% 55%)" }} />
-                  <YAxis tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11, fill: "hsl(220 20% 55%)" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(224 14% 14%)" />
+                  <XAxis dataKey="language" tick={{ fontSize: 11, fill: "hsl(220 14% 45%)" }} />
+                  <YAxis tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11, fill: "hsl(220 14% 45%)" }} />
                   <Tooltip
-                    contentStyle={{ background: "hsl(220 20% 12%)", border: "1px solid hsl(220 20% 22%)", borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: "hsl(224 20% 9%)", border: "1px solid hsl(224 14% 16%)", borderRadius: 8, fontSize: 12 }}
                     formatter={(v: any, name: string) => name === "spend" ? [`$${fmt(v)}`, "Spend"] : [v, name]}
                   />
                   <Bar dataKey="spend" radius={[4, 4, 0, 0]} maxBarSize={60}>
@@ -458,11 +458,11 @@ export default function Geography() {
             <div className="h-60">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={top10Spend} layout="vertical" margin={{ top: 0, right: 16, left: 60, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(220 20% 20%)" />
-                  <XAxis type="number" tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11, fill: "hsl(220 20% 55%)" }} />
-                  <YAxis type="category" dataKey="country" tick={{ fontSize: 11, fill: "hsl(220 20% 65%)" }} width={58} />
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(224 14% 14%)" />
+                  <XAxis type="number" tickFormatter={(v) => `$${v}`} tick={{ fontSize: 11, fill: "hsl(220 14% 45%)" }} />
+                  <YAxis type="category" dataKey="country" tick={{ fontSize: 11, fill: "hsl(220 14% 50%)" }} width={58} />
                   <Tooltip
-                    contentStyle={{ background: "hsl(220 20% 12%)", border: "1px solid hsl(220 20% 22%)", borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: "hsl(224 20% 9%)", border: "1px solid hsl(224 14% 16%)", borderRadius: 8, fontSize: 12 }}
                     formatter={(v: any) => [`$${fmt(v)}`, "Spend"]}
                   />
                   <Bar dataKey="spend" radius={[0, 4, 4, 0]} maxBarSize={18}>
