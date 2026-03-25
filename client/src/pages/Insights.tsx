@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import CampaignPicker from "@/components/CampaignPicker";
 import {
@@ -345,6 +346,7 @@ function generatePowerInsights(
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Insights() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
   const [campaignId, setCampaignId] = useState("");
   const [expandedRec, setExpandedRec] = useState<string | null>(null);
@@ -352,13 +354,13 @@ export default function Insights() {
 
   const { data: tokenData } = useQuery({
     queryKey: ["/api/token"],
-    queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()),
+    queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()),
   });
   const hasToken = tokenData?.hasToken;
 
   const { data, isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["/api/campaigns", campaignId, "insights-analysis", datePreset],
-    queryFn: () => apiRequest("GET", `/api/campaigns/${campaignId}/insights-analysis?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/campaigns/${campaignId}/insights-analysis?date_preset=${datePreset}`)).then(r => r.json()),
     enabled: hasToken && !!campaignId,
     refetchInterval: 5 * 60 * 1000,
     staleTime: 4 * 60 * 1000,
@@ -367,7 +369,7 @@ export default function Insights() {
   // Also fetch P&L data to power enhanced suggestions
   const { data: pnlData } = useQuery({
     queryKey: ["/api/pnl", datePreset],
-    queryFn: () => apiRequest("GET", `/api/pnl?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/pnl?date_preset=${datePreset}`)).then(r => r.json()),
     enabled: hasToken,
     staleTime: 5 * 60 * 1000,
     retry: 1,

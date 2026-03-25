@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Trash2, Wifi, Database, Clock, AlertCircle, CheckCircle, Info, AlertTriangle } from "lucide-react";
@@ -26,6 +27,7 @@ const LEVEL_STYLES: Record<string, { bg: string; text: string; border: string; i
 };
 
 export default function Logs() {
+  const url = useApiUrl();
   const [filter, setFilter] = useState<"all" | "error" | "warn" | "success" | "info">("all");
   const [autoRefresh, setAutoRefresh] = useState(true);
   const qc = useQueryClient();
@@ -33,17 +35,17 @@ export default function Logs() {
 
   const { data, isLoading, dataUpdatedAt } = useQuery({
     queryKey: ["/api/logs"],
-    queryFn: () => apiRequest("GET", "/api/logs").then(r => r.json()),
+    queryFn: () => apiRequest("GET", url("/api/logs")).then(r => r.json()),
     refetchInterval: autoRefresh ? 5000 : false,
   });
 
   const clearLogs = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/logs/clear"),
+    mutationFn: () => apiRequest("POST", url("/api/logs/clear")),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/logs"] }); toast({ title: "Logs cleared" }); },
   });
 
   const clearCache = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/cache/clear"),
+    mutationFn: () => apiRequest("POST", url("/api/cache/clear")),
     onSuccess: () => { qc.invalidateQueries(); toast({ title: "Cache cleared", description: "Fetching fresh data from Meta..." }); },
   });
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import {
   DollarSign, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2,
@@ -122,11 +123,12 @@ function CustomTooltip({ active, payload, label }: any) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function PnL() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/pnl", datePreset],
-    queryFn: () => apiRequest("GET", `/api/pnl?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/pnl?date_preset=${datePreset}`)).then(r => r.json()),
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });

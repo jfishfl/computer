@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCampaigns, type Campaign } from "@/hooks/useCampaigns";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 
 interface CampaignPickerProps {
   value: string;
@@ -13,9 +14,10 @@ interface CampaignPickerProps {
 }
 
 export default function CampaignPicker({ value, onChange, includeAll = false, className }: CampaignPickerProps) {
+  const url = useApiUrl();
   const { data: tokenData } = useQuery({
     queryKey: ["/api/token"],
-    queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()),
+    queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()),
     staleTime: 30000,
   });
   const hasToken = tokenData?.hasToken;

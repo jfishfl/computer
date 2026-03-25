@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import {
   Image as ImageIcon, Play, TrendingUp, TrendingDown, Star, Zap, Lightbulb,
@@ -29,6 +30,7 @@ interface GenImage {
 }
 
 function GenerateImagesPanel() {
+  const url = useApiUrl();
   const qc = useQueryClient();
   const [language, setLanguage] = useState("All");
   const [count, setCount] = useState(2);
@@ -37,7 +39,7 @@ function GenerateImagesPanel() {
   // Fetch existing generated images
   const { data: galleryData, refetch: refetchGallery } = useQuery({
     queryKey: ["/api/generated-images"],
-    queryFn: () => apiRequest("GET", "/api/generated-images").then(r => r.json()),
+    queryFn: () => apiRequest("GET", url("/api/generated-images")).then(r => r.json()),
     staleTime: 30 * 1000,
   });
 
@@ -45,7 +47,7 @@ function GenerateImagesPanel() {
 
   const generateMutation = useMutation({
     mutationFn: (params: { language: string; count: number }) =>
-      apiRequest("POST", "/api/generate-ad-image", params).then(r => r.json()),
+      apiRequest("POST", url("/api/generate-ad-image"), params).then(r => r.json()),
     onSuccess: () => {
       refetchGallery();
       qc.invalidateQueries({ queryKey: ["/api/generated-images"] });
@@ -593,6 +595,7 @@ function generateAdIdeas(ads: any[], angleStats: any[]) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Creatives() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
   const [activeTab, setActiveTab] = useState("compare");
   const [sortBy, setSortBy] = useState<"score" | "ctr" | "spend" | "purchases">("score");
@@ -600,7 +603,7 @@ export default function Creatives() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/creative-analysis", datePreset],
-    queryFn: () => apiRequest("GET", `/api/creative-analysis?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/creative-analysis?date_preset=${datePreset}`)).then(r => r.json()),
     staleTime: 10 * 60 * 1000,
     retry: 1,
   });

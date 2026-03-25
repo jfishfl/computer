@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import { Link } from "wouter";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import { ChevronLeft } from "lucide-react";
@@ -13,10 +14,11 @@ function fmt(n: number | null | undefined, prefix = "", suffix = "", decimals = 
 }
 
 export default function AdSetDetail() {
+  const url = useApiUrl();
   const { id } = useParams<{ id: string }>();
   const [datePreset, setDatePreset] = useState("last_7d");
 
-  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()) });
+  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()) });
   const hasToken = tokenData?.hasToken;
 
   // Fetch the ad set's own metadata from Meta
@@ -32,7 +34,7 @@ export default function AdSetDetail() {
     queryFn: async () => {
       // We have the adset ID but need a campaign ID for the new route
       // Fall back to the old direct adset/ads route which still exists
-      const res = await apiRequest("GET", `/api/adsets/${id}/ads?date_preset=${datePreset}`).then(r => r.json());
+      const res = await apiRequest("GET", url(`/api/adsets/${id}/ads?date_preset=${datePreset}`)).then(r => r.json());
       return res;
     },
     enabled: hasToken && !!id,

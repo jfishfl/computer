@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import { Link } from "wouter";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import StatusBadge from "@/components/StatusBadge";
@@ -20,17 +21,18 @@ function shortName(name: string) {
 }
 
 export default function AdSets() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
   const [campaignId, setCampaignId] = useState("");
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()) });
+  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()) });
   const hasToken = tokenData?.hasToken;
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/campaigns", campaignId, "adsets", datePreset],
-    queryFn: () => apiRequest("GET", `/api/campaigns/${campaignId}/adsets?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/campaigns/${campaignId}/adsets?date_preset=${datePreset}`)).then(r => r.json()),
     enabled: hasToken && !!campaignId,
   });
 
@@ -38,7 +40,7 @@ export default function AdSets() {
 
   const toggleMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
-      apiRequest("POST", `/api/adsets/${id}/toggle`, { status }).then(r => r.json()),
+      apiRequest("POST", url(`/api/adsets/${id}/toggle`), { status }).then(r => r.json()),
     onSuccess: (_, { status }) => {
       toast({ title: `Ad set ${status === "ACTIVE" ? "activated" : "paused"}` });
       qc.invalidateQueries({ queryKey: ["/api/campaigns", campaignId, "adsets"] });

@@ -1,35 +1,43 @@
 import { InsertToken } from "@shared/schema";
+import { ACCOUNTS, DEFAULT_ACCOUNT } from "@shared/schema";
 import fs from "fs";
 import path from "path";
 
-const TOKEN_FILE = path.join(process.cwd(), ".token");
-
 export interface IStorage {
-  getToken(): Promise<string | null>;
-  setToken(token: string): Promise<void>;
+  getToken(accountId?: string): Promise<string | null>;
+  setToken(token: string, accountId?: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
-  private token: string | null = null;
+  private tokens: Record<string, string | null> = {};
 
   constructor() {
-    // Load token from disk on startup
-    try {
-      if (fs.existsSync(TOKEN_FILE)) {
-        this.token = fs.readFileSync(TOKEN_FILE, "utf-8").trim() || null;
+    // Load all account tokens from disk on startup
+    for (const [id, config] of Object.entries(ACCOUNTS)) {
+      const tokenFile = path.join(process.cwd(), config.tokenFile);
+      try {
+        if (fs.existsSync(tokenFile)) {
+          this.tokens[id] = fs.readFileSync(tokenFile, "utf-8").trim() || null;
+        } else {
+          this.tokens[id] = null;
+        }
+      } catch {
+        this.tokens[id] = null;
       }
-    } catch {}
+    }
   }
 
-  async getToken(): Promise<string | null> {
-    return this.token;
+  async getToken(accountId: string = DEFAULT_ACCOUNT): Promise<string | null> {
+    return this.tokens[accountId] ?? null;
   }
 
-  async setToken(token: string): Promise<void> {
-    this.token = token;
-    // Persist to disk so it survives restarts
+  async setToken(token: string, accountId: string = DEFAULT_ACCOUNT): Promise<void> {
+    this.tokens[accountId] = token;
+    const config = ACCOUNTS[accountId];
+    if (!config) return;
+    const tokenFile = path.join(process.cwd(), config.tokenFile);
     try {
-      fs.writeFileSync(TOKEN_FILE, token, { mode: 0o600 });
+      fs.writeFileSync(tokenFile, token, { mode: 0o600 });
     } catch {}
   }
 }

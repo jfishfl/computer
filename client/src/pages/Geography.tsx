@@ -1,6 +1,7 @@
 import { useState, useMemo, Suspense, lazy } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import { useCampaigns } from "@/hooks/useCampaigns";
 import { Globe, TrendingUp, DollarSign, MousePointer, ShoppingCart, Clock, RefreshCw, AlertCircle, Map } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from "recharts";
@@ -70,6 +71,7 @@ function LastUpdated({ iso }: { iso?: string }) {
 }
 
 export default function Geography() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
   const [countrySort, setCountrySort] = useState<"spend" | "clicks" | "ctr" | "purchases">("spend");
   const [tab, setTab] = useState<"countries" | "languages">("countries");
@@ -78,7 +80,7 @@ export default function Geography() {
 
   const { data: tokenData } = useQuery({
     queryKey: ["/api/token"],
-    queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()),
+    queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()),
   });
   const hasToken = tokenData?.hasToken;
 
@@ -93,7 +95,7 @@ export default function Geography() {
   const { data, isLoading, dataUpdatedAt, refetch, isFetching } = useQuery({
     queryKey: ["/api/geography", datePreset, selectedCampaigns.join(",")],
     queryFn: () =>
-      apiRequest("GET", `/api/geography?date_preset=${datePreset}${campaignIdsParam}`).then(r => r.json()),
+      apiRequest("GET", url(`/api/geography?date_preset=${datePreset}${campaignIdsParam}`)).then(r => r.json()),
     enabled: hasToken,
     refetchInterval: 5 * 60 * 1000,
     staleTime: 4 * 60 * 1000,

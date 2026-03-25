@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 
 export interface Campaign {
   id: string;
@@ -12,9 +13,10 @@ export interface Campaign {
 }
 
 export function useCampaigns(hasToken: boolean) {
+  const url = useApiUrl();
   return useQuery<{ campaigns: Campaign[] }>({
     queryKey: ["/api/campaigns"],
-    queryFn: () => apiRequest("GET", "/api/campaigns").then(r => r.json()),
+    queryFn: () => apiRequest("GET", url("/api/campaigns")).then(r => r.json()),
     enabled: hasToken,
     staleTime: 5 * 60 * 1000,
     refetchInterval: 10 * 60 * 1000,

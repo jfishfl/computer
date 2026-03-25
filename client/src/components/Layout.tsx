@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import PerplexityAttribution from "@/components/PerplexityAttribution";
+import { useAccount } from "@/contexts/AccountContext";
 
 const NAV = [
   { href: "/",          icon: LayoutDashboard, label: "Overview"  },
@@ -134,13 +135,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const qc = useQueryClient();
   const { toast } = useToast();
+  const account = useAccount();
 
   const { data: tokenData } = useQuery({
     queryKey: ["/api/token"],
-    queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/token${account.id !== 'numerology' ? '?account=' + account.id : ''}`).then(r => r.json()),
     staleTime: 30000,
   });
   const hasToken = tokenData?.hasToken;
+
+  // Hide P&L page for accounts without CRM data
+  const sidebarNav = NAV_SIDEBAR.filter(n => account.hasCrm || n.href !== "/pnl");
+  const bottomNav = NAV.filter(n => account.hasCrm || n.href !== "/pnl");
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -171,7 +177,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav links */}
         <nav className="flex-1 px-2 space-y-0.5 overflow-y-auto">
-          {NAV_SIDEBAR.map(({ href, icon: Icon, label }) => {
+          {sidebarNav.map(({ href, icon: Icon, label }) => {
             const active = location === href;
             return (
               <Link key={href} href={href}
@@ -218,7 +224,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {/* Refresh */}
           <button
             onClick={async () => {
-              await apiRequest("POST", "/api/cache/clear");
+              await apiRequest("POST", `/api/cache/clear${account.id !== "numerology" ? "?account=" + account.id : ""}`);
               qc.invalidateQueries();
               toast({ title: "Cache cleared", description: "Fetching fresh data from Meta…" });
             }}
@@ -283,7 +289,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {/* Breadcrumb / page info */}
           <div className="flex-1 min-w-0">
             <div className="text-xs text-muted-foreground/50 font-mono truncate tracking-wide">
-              Numerology Blueprint · Meta Ads · act_670664411827203
+  {account.description} · {account.id !== "numerology" ? "act_3384275714995178" : "act_670664411827203"}
             </div>
           </div>
 
@@ -343,7 +349,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           boxShadow: "0 -4px 24px rgba(0,0,0,0.4)",
         }}
       >
-        {NAV.map(({ href, icon: Icon, label }) => {
+        {bottomNav.map(({ href, icon: Icon, label }) => {
           const active = location === href;
           return (
             <Link key={href} href={href}

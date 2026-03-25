@@ -1,7 +1,17 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { CAMPAIGN_ID, AD_SETS, ALL_ADS, ACT } from "@shared/schema";
+import { CAMPAIGN_ID, AD_SETS, ALL_ADS, ACT, ACCOUNTS, DEFAULT_ACCOUNT } from "@shared/schema";
+
+// ── Per-request account resolution helper ────────────────────────────────────
+function getAccount(req: any) {
+  const id = (req.query.account as string) || DEFAULT_ACCOUNT;
+  return ACCOUNTS[id] || ACCOUNTS[DEFAULT_ACCOUNT];
+}
+
+function getActForReq(req: any): string {
+  return getAccount(req).act;
+}
 
 // International campaign constants
 const INTL_CAMPAIGN_ID = "120243735394910683";
@@ -576,10 +586,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── List all campaigns in the ad account (dynamic) ──────────────────────────
   app.get("/api/campaigns", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     try {
-      const data = await fetchMeta(`${ACT}/campaigns`, token, {
+      const data = await fetchMeta(`${getActForReq(req)}/campaigns`, token, {
         fields: "id,name,status,objective,daily_budget,lifetime_budget,created_time",
         limit: "50",
       });
@@ -592,14 +603,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Single campaign overview + insights (or "all" for aggregate) ─────────────
   app.get("/api/campaigns/:campaignId", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { campaignId } = req.params;
     const datePreset = (req.query.date_preset as string) || "last_7d";
     try {
       if (campaignId === "all") {
         // Aggregate across all campaigns
-        const allData = await fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" });
+        const allData = await fetchMeta(`${getActForReq(req)}/campaigns`, token, { fields: "id,name,status", limit: "50" });
         const campaigns = allData.data || [];
         const insightResults = await Promise.all(
           campaigns.map((c: any) =>
@@ -650,14 +662,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── List ad sets for any campaign (live from Meta) ───────────────────────────
   app.get("/api/campaigns/:campaignId/adsets", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { campaignId } = req.params;
     const datePreset = (req.query.date_preset as string) || "last_7d";
     try {
       if (campaignId === "all") {
         // Fetch all campaigns, then get all their ad sets merged into one flat list
-        const allCampaignsData = await fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" });
+        const allCampaignsData = await fetchMeta(`${getActForReq(req)}/campaigns`, token, { fields: "id,name,status", limit: "50" });
         const allCampaigns = allCampaignsData.data || [];
         const adsetsByCampaign = await Promise.all(
           allCampaigns.map((c: any) =>
@@ -712,7 +725,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── List ads for any ad set (live from Meta) ─────────────────────────────────
   app.get("/api/campaigns/:campaignId/adsets/:adsetId/ads", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { adsetId } = req.params;
     const datePreset = (req.query.date_preset as string) || "last_7d";
@@ -743,7 +757,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Ad creative / thumbnail ────────────────────────────────────────────────
   app.get("/api/campaigns/:campaignId/adsets/:adsetId/ads/:adId/creative", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { adId } = req.params;
     try {
@@ -773,14 +788,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Insights analysis for any campaign ──────────────────────────────────────
   app.get("/api/campaigns/:campaignId/insights-analysis", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { campaignId } = req.params;
     const datePreset = (req.query.date_preset as string) || "last_7d";
     try {
       if (campaignId === "all") {
         // Aggregate insights across all campaigns
-        const allCampaignsData = await fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" });
+        const allCampaignsData = await fetchMeta(`${getActForReq(req)}/campaigns`, token, { fields: "id,name,status", limit: "50" });
         const allCampaigns = allCampaignsData.data || [];
         // Fetch all campaign-level insights + all ad sets
         const [campInsResults, adsetsByCampaign] = await Promise.all([
@@ -930,7 +946,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Get/set token
   app.get("/api/token", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     res.json({ hasToken: !!token });
   });
 
@@ -976,6 +993,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/token", async (req, res) => {
+    const _acct = getAccount(req);
     const { token } = req.body;
     if (!token || typeof token !== "string") return res.status(400).json({ error: "Token required" });
     try {
@@ -990,7 +1008,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Campaign overview
   app.get("/api/campaign", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
     try {
@@ -1006,7 +1025,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Ad sets with insights
   app.get("/api/adsets", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
     try {
@@ -1034,7 +1054,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Ads for a specific adset
   app.get("/api/adsets/:adsetId/ads", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { adsetId } = req.params;
     const datePreset = (req.query.date_preset as string) || "last_7d";
@@ -1057,7 +1078,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // All ads insights
   app.get("/api/ads", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
     try {
@@ -1078,7 +1100,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Toggle ad set status
   app.post("/api/adsets/:adsetId/toggle", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { adsetId } = req.params;
     const { status } = req.body;
@@ -1098,7 +1121,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // Toggle campaign status
   app.post("/api/campaign/toggle", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const { status } = req.body;
     try {
@@ -1117,7 +1141,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Geography Breakdown ─────────────────────────────────────────────────
   app.get("/api/geography", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
     // Accept comma-separated campaign IDs, or fall back to fetching all from account
@@ -1131,7 +1156,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       if (campaignIdsParam) {
         campaignIds = campaignIdsParam.split(",").filter(Boolean);
       } else {
-        const allCampaigns = await fetchMeta(`${ACT}/campaigns`, token, {
+        const allCampaigns = await fetchMeta(`${getActForReq(req)}/campaigns`, token, {
           fields: "id", limit: "50",
         });
         campaignIds = (allCampaigns.data || []).map((c: any) => c.id);
@@ -1260,16 +1285,17 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Creative Analysis — all ads with creative text + performance ──────────────────
   app.get("/api/creative-analysis", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
-    const cacheKey = `creative-analysis:${datePreset}`;
+    const cacheKey = `${getAccount(req).cachePrefix}:creative-analysis:${datePreset}`;
     const cached = metaCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return res.json(cached.data);
 
     try {
       // 1. Get all campaigns
-      const allCampaignsData = await fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" });
+      const allCampaignsData = await fetchMeta(`${getActForReq(req)}/campaigns`, token, { fields: "id,name,status", limit: "50" });
       const campaigns = allCampaignsData?.data || [];
 
       // 2. Get all ad sets per campaign
@@ -1487,7 +1513,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── P&L Dashboard — combines Meta + RedTrack + Railway DB ────────────────────
   app.get("/api/pnl", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
 
@@ -1503,7 +1530,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       // 1. Meta — all campaigns aggregate spend + FB-reported conversions
       const [allCampaignsData, rtReport, rtConversions, dbPurchases, dbFunnel, dbProducts] = await Promise.all([
         // Meta campaigns
-        fetchMeta(`${ACT}/campaigns`, token, { fields: "id,name,status", limit: "50" }),
+        fetchMeta(`${getActForReq(req)}/campaigns`, token, { fields: "id,name,status", limit: "50" }),
         // RedTrack daily report grouped by date
         fetchRedTrack("/report", { date_from: dateFrom, date_to: dateTo, "group[]": "date" }),
         // RedTrack conversions list
@@ -1720,7 +1747,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Insights / Performance Analysis ───────────────────────────────────────
   app.get("/api/insights-analysis", async (req, res) => {
-    const token = await storage.getToken();
+    const _acct = getAccount(req);
+    const token = await storage.getToken(_acct.id);
     if (!token) return res.status(401).json({ error: "No token" });
     const datePreset = (req.query.date_preset as string) || "last_7d";
 

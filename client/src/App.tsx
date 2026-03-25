@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountProvider } from "@/contexts/AccountContext";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { data, isLoading } = useQuery({
@@ -40,7 +41,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function Router() {
+function AppRoutes() {
   return (
     <WouterRouter hook={useHashLocation}>
       <AuthGate>
@@ -66,8 +67,10 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router />
-      <Toaster />
+      <AccountProvider>
+        <AppRoutes />
+        <Toaster />
+      </AccountProvider>
     </QueryClientProvider>
   );
 }

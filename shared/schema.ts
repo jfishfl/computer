@@ -102,3 +102,44 @@ export const ALL_ADS: { name: string; id: string; adset: string; adsetId: string
   { name: "Static - Finally Understand | ad-creative-9x16-v5", id: "120243699135340683", adset: "Static - Finally Understand", adsetId: "120243697894680683" },
   { name: "Static - Finally Understand | ad-creative-9x16-v10", id: "120243699136320683", adset: "Static - Finally Understand", adsetId: "120243697894680683" },
 ];
+
+// ── Multi-account config ───────────────────────────────────────────────────────
+export interface AccountConfig {
+  id: string;           // slug used in URL path and API param
+  name: string;         // display name
+  act: string;          // Meta ad account ID (act_XXXXXX)
+  pageId?: string;      // Facebook page ID
+  tokenFile: string;    // filename for token persistence
+  cachePrefix: string;  // prefix for disk cache keys to isolate namespaces
+  redtrackKey?: string; // RedTrack API key (if different per account)
+  hasCrm: boolean;      // whether Railway DB / CRM data is available
+  color: string;        // accent hue for branding (HSL hue value)
+  description: string;  // short label shown in UI
+}
+
+export const ACCOUNTS: Record<string, AccountConfig> = {
+  numerology: {
+    id: "numerology",
+    name: "Numerology Blueprint",
+    act: "act_670664411827203",
+    pageId: "61580590181403",
+    tokenFile: ".token",
+    cachePrefix: "num",
+    redtrackKey: "O9jnONlm9lhcWNNQh1X5",
+    hasCrm: true,
+    color: "38",   // amber/gold
+    description: "Numerology Blueprint · Meta Ads",
+  },
+  proverb: {
+    id: "proverb",
+    name: "Proverb",
+    act: "act_3384275714995178",
+    tokenFile: ".token_proverb",
+    cachePrefix: "prv",
+    hasCrm: false,
+    color: "199",  // cyan/teal — distinct from numerology gold
+    description: "Proverb · Meta Ads",
+  },
+};
+
+export const DEFAULT_ACCOUNT = "numerology";

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import KpiCard from "@/components/KpiCard";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import StatusBadge from "@/components/StatusBadge";
@@ -21,28 +22,29 @@ function shortName(name: string) {
 }
 
 export default function Dashboard() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
   const [campaignId, setCampaignId] = useState("");
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()) });
+  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()) });
   const hasToken = tokenData?.hasToken;
 
   const { data: campaignData, isLoading: campaignLoading } = useQuery({
     queryKey: ["/api/campaigns", campaignId, datePreset],
-    queryFn: () => apiRequest("GET", `/api/campaigns/${campaignId}?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/campaigns/${campaignId}?date_preset=${datePreset}`)).then(r => r.json()),
     enabled: hasToken && !!campaignId,
   });
 
   const { data: adsetsData, isLoading: adsetsLoading } = useQuery({
     queryKey: ["/api/campaigns", campaignId, "adsets", datePreset],
-    queryFn: () => apiRequest("GET", `/api/campaigns/${campaignId}/adsets?date_preset=${datePreset}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/campaigns/${campaignId}/adsets?date_preset=${datePreset}`)).then(r => r.json()),
     enabled: hasToken && !!campaignId,
   });
 
   const toggleCampaign = useMutation({
-    mutationFn: (status: string) => apiRequest("POST", "/api/campaign/toggle", { status }).then(r => r.json()),
+    mutationFn: (status: string) => apiRequest("POST", url("/api/campaign/toggle"), { status }).then(r => r.json()),
     onSuccess: (_, status) => {
       toast({ title: `Campaign ${status === "ACTIVE" ? "activated" : "paused"}` });
       qc.invalidateQueries({ queryKey: ["/api/campaigns"] });

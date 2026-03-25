@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useApiUrl } from "@/hooks/useApi";
 import DatePresetPicker from "@/components/DatePresetPicker";
 import CampaignPicker from "@/components/CampaignPicker";
 import { Search, ArrowUpDown, X, ExternalLink, Image as ImageIcon, Play } from "lucide-react";
@@ -185,6 +186,7 @@ function MetricCell({ label, value, highlight }: { label: string; value: string;
 
 // ── Main Ads page ─────────────────────────────────────────────────────────────
 export default function Ads() {
+  const url = useApiUrl();
   const [datePreset, setDatePreset] = useState("last_7d");
   const [campaignId, setCampaignId] = useState("");
   const [search, setSearch] = useState("");
@@ -193,13 +195,13 @@ export default function Ads() {
   const [filterAdset, setFilterAdset] = useState("all");
   const [previewAd, setPreviewAd] = useState<any | null>(null);
 
-  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", "/api/token").then(r => r.json()) });
+  const { data: tokenData } = useQuery({ queryKey: ["/api/token"], queryFn: () => apiRequest("GET", url("/api/token")).then(r => r.json()) });
   const hasToken = tokenData?.hasToken;
 
   // Fetch ad sets for the filter dropdown
   const { data: adsetsData } = useQuery({
     queryKey: ["/api/campaigns", campaignId, "adsets", "filter"],
-    queryFn: () => apiRequest("GET", `/api/campaigns/${campaignId}/adsets?date_preset=last_7d`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", url(`/api/campaigns/${campaignId}/adsets?date_preset=last_7d`)).then(r => r.json()),
     enabled: hasToken && !!campaignId,
   });
   const adsetList: any[] = adsetsData?.adsets || [];
@@ -208,11 +210,11 @@ export default function Ads() {
   const { data: allAdsData, isLoading } = useQuery({
     queryKey: ["/api/campaigns", campaignId, "all-ads", datePreset],
     queryFn: async () => {
-      const asRes = await apiRequest("GET", `/api/campaigns/${campaignId}/adsets?date_preset=${datePreset}`).then(r => r.json());
+      const asRes = await apiRequest("GET", url(`/api/campaigns/${campaignId}/adsets?date_preset=${datePreset}`)).then(r => r.json());
       const adsetItems: any[] = asRes.adsets || [];
       const adsPerAdset = await Promise.all(
         adsetItems.map((a: any) =>
-          apiRequest("GET", `/api/campaigns/${campaignId}/adsets/${a.id}/ads?date_preset=${datePreset}`)
+          apiRequest("GET", url(`/api/campaigns/${campaignId}/adsets/${a.id}/ads?date_preset=${datePreset}`))
             .then(r => r.json())
             .then(d => (d.ads || []).map((ad: any) => ({ ...ad, adset: a.name, adsetId: a.id })))
         )
